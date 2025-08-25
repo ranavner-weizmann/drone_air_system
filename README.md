@@ -20,7 +20,11 @@ As you already guessed, the Payload-SDK contains the PSDK repo, and the drone_ai
 
 ssh-ed25519 asdfvsdflvjsdktuyshbekruvhbysev your_email@example.com  
 
-Copy the public key, including the email, and ask Ran to add it to the SSH-Keys for Git access.  
+Copy the public key, including the email, and ask Ran to add it to the SSH-Keys for Git access.
+Run the following commands to change username and password (the image was created by some JohnZ something and we need to tell git we are not him):
+
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
 
 6. git clone git@github.com:ranavner-weizmann/Payload-SDK.git  
    Note: This repo is forked from the DJI main branch. It has been modified so it'll work with the USB-BULK configuration,  
