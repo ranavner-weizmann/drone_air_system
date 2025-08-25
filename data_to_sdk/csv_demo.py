@@ -1,3 +1,8 @@
+'''
+This is a simple script that creates a real-time csv to test the PSDK.
+'''
+
+
 import csv
 import time
 import random
