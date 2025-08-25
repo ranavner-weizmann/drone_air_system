@@ -26,14 +26,14 @@ Copy the public key, including the email, and ask Ran to add it to the SSH-Keys 
    Note: This repo is forked from the DJI main branch. It has been modified so it'll work with the USB-BULK configuration,  
    and it has my (Ran) app credentials that were created through the DJI Developer Service.  
    In the future, if needed, this info needs to be updated in the app_config file.   
-8. git clone this repo.  
+8. git clone this repo (drone_air_system). 
 
 ## Second Part - Activating and operating the system  
 
 ### First Setup  
-1. Inside the drone_air_system folder, there is a script called 'first_configuration.sh' - run it with sudo  
+1. Inside the drone_air_system folder, there is a script called 'setup_dji_sdk_demo.sh' - run it with sudo  
 NEED TO ADD CMAKE INSTALLATION 
-2. After running the script, the whole system should be transparent; it should start automatically when the Pi is connected to power.  
+2. After running the script, the whole system should be transparent; it should start automatically when the Pi is connected to power.  (Currently the SDK runs automatically but the runall.py does not).  
  
 ### Explanations  
 
@@ -66,7 +66,7 @@ you might need to send it many times until it starts sending data.
 
 Uri:  
 The Sensor allows for sending commands in real time.
-To do that, first run `cat > output/ldd/cmd.fifo` in the terminal, while it's located in the logger directory.
+To do that, first run `cat > output/cavity/cmd.fifo` in the terminal, while it's located in the logger directory.
 Now, sending commands is as easy as typing them and pressing enter.
 Valid commands:
 - PING (Returns: `OK PONG`.)
