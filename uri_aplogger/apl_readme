@@ -1,0 +1,15 @@
+Uri here.
+Rundown of the current system:
+runall.py - Master script, run it to run all other scripts.
+	runall reads from sensor_config.json to know what scripts to run for each individual sensor.
+	For all sensors except the spectro, it runs sensor_runner.py, which instantiates the actual sensor script. It receives as argument the name of the sensor to run.
+		sensor_runner.py then accesses sensor_implementations.py, which includes the individual differentiations for each sensor, such as different ways to read data.
+		sensor_implementations.py extends the generic_sensor.py class, where the basic serial access and reading occurs.
+	For the spectro, it runs spectro_timestamped.py, which uses the seabreeze library to read data.
+		spectro_hdf5.py and read_hdf5.py are a work in progress approach to reading spectro data, currently unused.
+	For the merger, it runs real_time_merger.py, and merges the latest outputs from the output folder into a new csv.
+
+For basic usage, runall.py is the only needed file.
+If debug is needed for a specific sensor, run "python sensor_runner.py [sensor name]"
+
+other files (iMet_safe, pom_safe, trisonica_safe) are old and unused, but in case the sensor_runner fails to run properly, these are assured to.
