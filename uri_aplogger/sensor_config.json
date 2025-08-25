@@ -72,5 +72,5 @@
     "enabled": true,
     "startup_delay": 5
   },
-  "path": "/home/rsp/air_pollution_collector/uri_aplogger"
+  "path": "/home/rsp/drone_air_system/uri_aplogger/"
 }
