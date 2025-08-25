@@ -1,0 +1,13 @@
+File list:
+- `runall.py` - Master script, handles running and stopping all other scripts.
+- `sensor_runner.py` - Instantiates the sensor reader. Can be individually ran with the name of the sensor as an argument. "python sensor_runner.py [sensor name]"
+- `sensor_implementations.py` - Sensor-specific settings for reading data from each sensor. Includes a class for every sensor (iMetSensor, POMSensor, TriSonicaSensor, Partector2ProSensor), which all extend GenericSensor.
+- `generic_sensor.py` - Class that includes all shared aspects of reading data, such as connecting by serial or writing data to csv.
+- `spectro_timestamped.py` - Outlier sensor that reads data with a custom library, and not by serial, required a separate class.
+- `sensor_config.json` - File that instructs `runall.py` on which sensors to run or not to run, with which headers, vendor/model ID, etc. 
+
+WIPs:
+- `spectro_hdf5.py` and `read_hdf5.py` - Unfinished approach to reading 2048 data columns from spectrometer.
+
+Obsolete:
+- Files in the `obsolete` folder - Legacy files that are, titularly, obsolete. 
