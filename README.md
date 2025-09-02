@@ -32,6 +32,7 @@ Copy the public key, including the email, and ask Ran to add it to the SSH-Keys 
 
 ### First Setup  
 1. Inside the drone_air_system folder, there is a script called 'first_configuration.sh' - run it with sudo  
+NEED TO ADD CMAKE INSTALLATION 
 2. After running the script, the whole system should be transparent; it should start automatically when the Pi is connected to power.  
  
 ### Explanations  
