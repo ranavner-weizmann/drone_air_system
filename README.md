@@ -38,5 +38,6 @@ Copy the public key, including the email, and ask Ran to add it to the SSH-Keys 
 
 The system works as follows:
 to be filled by Uri
+The data to be transmitted to the RC is located at: /home/rsp/drone_air_system/data_to_sdk/vitals.csv
 
 
