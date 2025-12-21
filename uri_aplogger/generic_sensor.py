@@ -34,7 +34,7 @@ class GenericSensor:
         self.baudrate = config.get('baudrate', 9600)
         self.timeout = config.get('timeout', 2)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.output_file = config.get('output_file', f'output/{name.lower()}_data_{timestamp}.csv')
+        self.output_file = config.get('output_file', f'output/{name.lower()}/{name.lower()}_data_{timestamp}.csv')
         
         self.setup_logging()
         signal.signal(signal.SIGINT, self.signal_handler)

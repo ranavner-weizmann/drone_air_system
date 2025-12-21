@@ -69,9 +69,9 @@ class RealTimeMerger:
             if sensor_config.get('enabled', True):
                 # Determine file pattern based on sensor type
                 if sensor_name == 'spectro':
-                    pattern = sensor_config.get('output_file_pattern', 'output/spectro_data_*.csv')
+                    pattern = sensor_config.get('output_file_pattern', 'output/spectro/spectro_data_*.csv')
                 else:
-                    pattern = f'output/{sensor_name}_data_*.csv'
+                    pattern = f'output/{sensor_name}/{sensor_name}_data_*.csv'
                 
                 self.sensor_files[sensor_name] = pattern
                 self.latest_data[sensor_name] = None

@@ -29,12 +29,15 @@ class HDF5Spectrometer:
         self.reconnect_delay = 2
         self.summary_interval = summary_interval
         
+        # Ensure output directory exists
+        Path('output').mkdir(exist_ok=True)
+        
         # Create timestamp for all output files
         self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # Output files
-        self.summary_csv = f'output/spectro_summary_{self.timestamp}.csv'
-        self.hdf5_file = f'output/spectro_full_{self.timestamp}.h5'
+        self.summary_csv = f'output/spectro/spectro_summary_{self.timestamp}.csv'
+        self.hdf5_file = f'output/spectro/spectro_full_{self.timestamp}.h5'
         
         # Data buffers
         self.wavelengths = None
@@ -54,7 +57,7 @@ class HDF5Spectrometer:
             level=logging.INFO,
             handlers=[
                 logging.StreamHandler(),
-                logging.FileHandler(f'output/spectro_log_{self.timestamp}.log')
+                logging.FileHandler(f'output/spectro/spectro_log_{self.timestamp}.log')
             ]
         )
         self.logger = logging.getLogger()
@@ -97,6 +100,9 @@ class HDF5Spectrometer:
     
     def init_hdf5_file(self):
         """Initialize HDF5 file with proper structure"""
+        # Ensure directory exists
+        Path('output').mkdir(exist_ok=True)
+        
         with h5py.File(self.hdf5_file, 'w') as f:
             # Store wavelengths as a fixed dataset (these don't change)
             f.create_dataset('wavelengths', data=self.wavelengths, compression='gzip')
@@ -110,12 +116,12 @@ class HDF5Spectrometer:
                            maxshape=(None, self.num_pixels),
                            dtype=np.float32,
                            compression='gzip',
-                           chunks=(100, self.num_pixels))
+                           chunks=(min(100, self.buffer_size), self.num_pixels))
             
             f.create_dataset('timestamps', 
                            shape=(0,),
                            maxshape=(None,),
-                           dtype=h5py.special_dtype(vlen=str),
+                           dtype=h5py.string_dtype(encoding='utf-8'),
                            compression='gzip')
             
             # Add metadata
@@ -123,6 +129,7 @@ class HDF5Spectrometer:
             f.attrs['instrument_model'] = str(self.spec.model) if self.spec else 'Unknown'
             f.attrs['integration_time'] = 100  # ms
             f.attrs['num_pixels'] = self.num_pixels
+            f.attrs['buffer_size'] = self.buffer_size
     
     def append_to_hdf5(self):
         """Append buffered spectra to HDF5 file"""
@@ -130,6 +137,10 @@ class HDF5Spectrometer:
             return
         
         try:
+            # Convert buffers to numpy arrays
+            spectra_array = np.array(self.spectra_buffer, dtype=np.float32)
+            timestamps_array = np.array(self.timestamps_buffer, dtype=h5py.string_dtype(encoding='utf-8'))
+            
             with h5py.File(self.hdf5_file, 'a') as f:
                 # Get current sizes
                 n_existing = f['intensities'].shape[0]
@@ -140,14 +151,14 @@ class HDF5Spectrometer:
                 f['timestamps'].resize((n_existing + n_new,))
                 
                 # Write new data
-                f['intensities'][n_existing:n_existing + n_new] = self.spectra_buffer
-                f['timestamps'][n_existing:n_existing + n_new] = self.timestamps_buffer
+                f['intensities'][n_existing:n_existing + n_new] = spectra_array
+                f['timestamps'][n_existing:n_existing + n_new] = timestamps_array
                 
                 # Update metadata
                 f.attrs['last_update'] = datetime.now().isoformat()
                 f.attrs['total_spectra'] = n_existing + n_new
             
-            self.logger.debug(f"Appended {n_new} spectra to HDF5 (total: {n_existing + n_new})")
+            self.logger.info(f"Appended {n_new} spectra to HDF5 (total: {n_existing + n_new})")
             
             # Clear buffers
             self.spectra_buffer.clear()
@@ -155,6 +166,8 @@ class HDF5Spectrometer:
             
         except Exception as e:
             self.logger.error(f"Error writing to HDF5: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
     
     def get_spectrum(self):
         """Get complete spectrum"""
@@ -196,19 +209,23 @@ class HDF5Spectrometer:
                 'Timestamp', 'peak_wavelength', 'max_intensity', 
                 'mean_intensity', 'std_intensity', 'total_points', 'status'
             ])
+        self.logger.info(f"Initialized summary CSV: {self.summary_csv}")
     
     def save_summary(self):
         """Save summary statistics to CSV"""
         if not self.summary_data:
             return
         
-        with open(self.summary_csv, 'a', newline='') as f:
-            writer = csv.writer(f)
-            for row in self.summary_data:
-                writer.writerow(row)
-        
-        self.logger.info(f"Saved {len(self.summary_data)} summary records to CSV")
-        self.summary_data.clear()
+        try:
+            with open(self.summary_csv, 'a', newline='') as f:
+                writer = csv.writer(f)
+                for row in self.summary_data:
+                    writer.writerow(row)
+            
+            self.logger.info(f"Saved {len(self.summary_data)} summary records to CSV")
+            self.summary_data.clear()
+        except Exception as e:
+            self.logger.error(f"Error saving summary CSV: {e}")
     
     def run(self):
         """Main data collection loop"""
@@ -222,6 +239,7 @@ class HDF5Spectrometer:
         last_connection_attempt = time.time()
         last_summary_save = time.time()
         last_buffer_flush = time.time()
+        last_hdf5_write = time.time()
         
         # Wait for initial connection
         while not self.spec and self.running:
@@ -247,7 +265,7 @@ class HDF5Spectrometer:
                 if spectrum:
                     measurement_count += 1
                     
-                    # Buffer spectrum for HDF5
+                    # Buffer spectrum for HDF5 (convert to list for consistent handling)
                     self.spectra_buffer.append(spectrum['intensities'])
                     self.timestamps_buffer.append(spectrum['timestamp'].isoformat())
                     
@@ -278,13 +296,15 @@ class HDF5Spectrometer:
                 # Periodic operations
                 current_time = time.time()
                 
-                # Flush buffer to HDF5 when full or every 30 seconds
+                # Flush buffer to HDF5 when full or every 10 seconds
                 if (len(self.spectra_buffer) >= self.buffer_size or 
-                    current_time - last_buffer_flush >= 30):
-                    self.append_to_hdf5()
-                    last_buffer_flush = current_time
+                    current_time - last_hdf5_write >= 10):
+                    if self.spectra_buffer:
+                        self.append_to_hdf5()
+                        last_hdf5_write = current_time
+                        last_buffer_flush = current_time
                 
-                # Save summary to CSV periodically
+                # Save summary to CSV periodically (every summary_interval seconds)
                 if current_time - last_summary_save >= self.summary_interval:
                     self.save_summary()
                     last_summary_save = current_time
@@ -292,22 +312,28 @@ class HDF5Spectrometer:
                 # Failure handling
                 if self.consecutive_failures >= self.max_failures:
                     self.logger.warning("Too many failures, attempting recovery...")
-                    self.spec = None
-                    
                     # Flush any remaining data before reconnecting
                     if self.spectra_buffer:
                         self.append_to_hdf5()
                     
+                    self.spec = None
                     time.sleep(self.reconnect_delay)
+                    
+                    # Try to reconnect
+                    if self.connect():
+                        self.consecutive_failures = 0
                 
-                time.sleep(1)  # Collect data every second
+                time.sleep(0.5)  # Collect data every 0.5 seconds
                 
         except KeyboardInterrupt:
             self.logger.info(f"Keyboard interrupt received")
         except Exception as e:
             self.logger.error(f"Unexpected error: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
         finally:
             # Final flush on shutdown
+            self.logger.info("Shutting down, flushing remaining data...")
             if self.spectra_buffer:
                 self.append_to_hdf5()
             if self.summary_data:
@@ -316,10 +342,13 @@ class HDF5Spectrometer:
             if self.spec:
                 try:
                     self.spec.close()
+                    self.logger.info("Spectrometer closed")
                 except:
                     pass
             
             self.logger.info(f"Stopped after {measurement_count} measurements")
+            self.logger.info(f"HDF5 file: {self.hdf5_file}")
+            self.logger.info(f"CSV file: {self.summary_csv}")
 
 def main():
     import argparse

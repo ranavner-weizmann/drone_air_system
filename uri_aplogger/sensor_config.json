@@ -44,11 +44,11 @@
     },
     "spectro": {
       "type": "spectrometer",
-      "script": "spectro_timestamped.py",
+      "script": "spectro_hdf5.py",
       "enabled": true,
       "restart_delay": 5,
       "startup_delay": 2,
-      "output_file_pattern": "output/spectro_data_*.csv",
+      "output_file_pattern": "output/spectro/spectro_data_*.csv",
       "column_names": ["Timestamp", "peak_wavelength", "max_intensity", "total_points", "status"]
     },
     "partector2pro": {
