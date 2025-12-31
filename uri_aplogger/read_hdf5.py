@@ -90,7 +90,7 @@ def export_to_csv(filename, output_csv, max_spectra=100):
 
 if __name__ == "__main__":
     # Example usage
-    filename = "output/spectro_full_20251203_105346.h5"
+    filename = "output/spectro_full_20251221_142542.h5"
     
     # 1. Inspect file
     inspect_hdf5_file(filename)
@@ -102,4 +102,4 @@ if __name__ == "__main__":
     extract_time_series(filename, 1000)
     
     # 4. Export to CSV (first 100 spectra)
-    export_to_csv(filename, "output/spectra_subset.csv", 100)
+    export_to_csv(filename, "output/spectro/spectra_subset.csv", 100)
