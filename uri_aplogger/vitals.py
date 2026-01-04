@@ -23,6 +23,11 @@ class VitalsExporter:
             config_file: Path to sensor configuration file
             output_interval: How often to output vitals data (seconds)
         """
+        # Get the path to data_to_sdk folder
+        self.script_dir = Path(__file__).parent  # Current script's directory
+        self.parent_dir = self.script_dir.parent  # drone_air_system folder
+        self.data_to_sdk_dir = self.parent_dir / 'data_to_sdk'  # Target output directory
+        
         self.config = self.load_config(config_file)
         self.output_interval = output_interval
         self.running = True
@@ -57,21 +62,25 @@ class VitalsExporter:
         self.latest_data = {}
         self.latest_timestamps = {}
         
-        # Set up vitals output file
+        # Set up vitals output file in data_to_sdk
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.vitals_file = f'output/vitals_summary_{timestamp}.csv'
+        self.vitals_file = self.data_to_sdk_dir / f'vitals_summary_{timestamp}.csv'
         
         self.setup_logging()
         self.initialize_sensor_tracking()
         
     def setup_logging(self):
         """Setup logging configuration"""
+        # Create logs directory in the same folder as script
+        log_dir = self.script_dir / 'logs'
+        log_dir.mkdir(exist_ok=True)
+        
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - Vitals - %(levelname)s - %(message)s',
             handlers=[
                 logging.StreamHandler(),
-                logging.FileHandler('vitals_exporter.log')
+                logging.FileHandler(log_dir / 'vitals_exporter.log')
             ]
         )
         self.logger = logging.getLogger('VitalsExporter')
@@ -79,7 +88,12 @@ class VitalsExporter:
     def load_config(self, config_file):
         """Load sensor configuration"""
         try:
-            with open(config_file, 'r') as f:
+            # If config file is in current directory, use it; otherwise check parent
+            config_path = self.script_dir / config_file
+            if not config_path.exists():
+                config_path = self.parent_dir / config_file
+                
+            with open(config_path, 'r') as f:
                 return json.load(f)
         except Exception as e:
             self.logger.error(f"Error loading config: {e}")
@@ -276,8 +290,8 @@ class VitalsExporter:
     
     def write_vitals_data(self):
         """Write vitals data to CSV file"""
-        # Ensure output directory exists
-        Path('output').mkdir(exist_ok=True)
+        # Ensure data_to_sdk directory exists
+        self.data_to_sdk_dir.mkdir(exist_ok=True)
         
         # Initialize CSV file if it doesn't exist
         if not os.path.exists(self.vitals_file):
@@ -348,7 +362,8 @@ def main():
     exporter = VitalsExporter(config_file=args.config, output_interval=args.interval)
     
     if args.output:
-        exporter.vitals_file = args.output
+        # If custom output path is provided, use it
+        exporter.vitals_file = Path(args.output)
     
     try:
         exporter.run()
