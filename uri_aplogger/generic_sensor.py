@@ -129,7 +129,6 @@ class GenericSensor:
             self.consecutive_failures += 1
             return False
 
-    # generic_sensor.py - Updated read_serial_data method
     def read_serial_data(self):
         """Read data from serial port - Common for all sensors"""
         if not self.serial_conn or not self.serial_conn.is_open:
@@ -137,17 +136,24 @@ class GenericSensor:
                 return None
 
         try:
-            # Read available data
-            if self.serial_conn.in_waiting > 0:
+            # For fast data producers like TriSonica, read ALL available data
+            data_chunks = []
+            
+            # Read multiple lines if available
+            while self.serial_conn.in_waiting > 0:
                 line = self.serial_conn.readline()
                 if line:
                     decoded = line.decode('utf-8', errors='ignore').strip()
                     if decoded:
-                        self.logger.debug(f"Raw data: {decoded}")
-                        return decoded
+                        data_chunks.append(decoded)
+                        self.logger.debug(f"Raw data chunk: {decoded}")
             
-            # For some sensors like Partector 2 Pro, we might need to read anyway
-            # Try a non-blocking read with timeout
+            if data_chunks:
+                # For TriSonica, return the most recent complete line
+                # This prevents buffer overflow
+                return data_chunks[-1]
+            
+            # Fallback for other sensors
             try:
                 line = self.serial_conn.readline()
                 if line:

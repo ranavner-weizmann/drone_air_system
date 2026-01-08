@@ -45,9 +45,6 @@ class HDF5Spectrometer:
         self.timestamps_buffer = []  # Buffer for timestamps
         self.buffer_size = 100  # Number of spectra to buffer before writing to HDF5
         
-        # Summary statistics
-        self.summary_data = []
-        
         self.setup_logging()
         signal.signal(signal.SIGINT, self.signal_handler)
     
@@ -237,8 +234,6 @@ class HDF5Spectrometer:
         # Initial connection
         measurement_count = 0
         last_connection_attempt = time.time()
-        last_summary_save = time.time()
-        last_buffer_flush = time.time()
         last_hdf5_write = time.time()
         
         # Wait for initial connection
@@ -265,7 +260,7 @@ class HDF5Spectrometer:
                 if spectrum:
                     measurement_count += 1
                     
-                    # Buffer spectrum for HDF5 (convert to list for consistent handling)
+                    # Buffer spectrum for HDF5
                     self.spectra_buffer.append(spectrum['intensities'])
                     self.timestamps_buffer.append(spectrum['timestamp'].isoformat())
                     
@@ -273,16 +268,21 @@ class HDF5Spectrometer:
                     mean_intensity = spectrum['intensities'].mean()
                     std_intensity = spectrum['intensities'].std()
                     
-                    # Add to summary buffer
-                    self.summary_data.append([
-                        spectrum['timestamp'].strftime("%Y-%m-%d %H:%M:%S"),
-                        f"{spectrum['peak_wavelength']:.4f}",
-                        f"{spectrum['max_intensity']:.2f}",
-                        f"{mean_intensity:.2f}",
-                        f"{std_intensity:.2f}",
-                        len(spectrum['intensities']),
-                        'success'
-                    ])
+                    # Write summary to CSV IMMEDIATELY (no buffering)
+                    try:
+                        with open(self.summary_csv, 'a', newline='') as f:
+                            writer = csv.writer(f)
+                            writer.writerow([
+                                spectrum['timestamp'].strftime("%Y-%m-%d %H:%M:%S"),
+                                f"{spectrum['peak_wavelength']:.4f}",
+                                f"{spectrum['max_intensity']:.2f}",
+                                f"{mean_intensity:.2f}",
+                                f"{std_intensity:.2f}",
+                                len(spectrum['intensities']),
+                                'success'
+                            ])
+                    except Exception as e:
+                        self.logger.error(f"Error writing to summary CSV: {e}")
                     
                     # Log every 10 measurements
                     if measurement_count % 10 == 0:
@@ -293,21 +293,12 @@ class HDF5Spectrometer:
                     
                     self.consecutive_failures = 0
                 
-                # Periodic operations
-                current_time = time.time()
-                
                 # Flush buffer to HDF5 when full or every 10 seconds
                 if (len(self.spectra_buffer) >= self.buffer_size or 
                     current_time - last_hdf5_write >= 10):
                     if self.spectra_buffer:
                         self.append_to_hdf5()
                         last_hdf5_write = current_time
-                        last_buffer_flush = current_time
-                
-                # Save summary to CSV periodically (every summary_interval seconds)
-                if current_time - last_summary_save >= self.summary_interval:
-                    self.save_summary()
-                    last_summary_save = current_time
                 
                 # Failure handling
                 if self.consecutive_failures >= self.max_failures:
@@ -336,8 +327,6 @@ class HDF5Spectrometer:
             self.logger.info("Shutting down, flushing remaining data...")
             if self.spectra_buffer:
                 self.append_to_hdf5()
-            if self.summary_data:
-                self.save_summary()
             
             if self.spec:
                 try:

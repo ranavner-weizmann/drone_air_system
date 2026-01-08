@@ -3,7 +3,7 @@
     "imet": {
       "type": "iMet",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 2,
       "identifiers": {
@@ -17,7 +17,7 @@
     "pom": {
       "type": "POM",
       "script": "sensor_runner.py", 
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 2,
       "identifiers": {
@@ -48,13 +48,13 @@
       "enabled": true,
       "restart_delay": 5,
       "startup_delay": 2,
-      "output_file_pattern": "output/spectro/spectro_data_*.csv",
-      "column_names": ["Timestamp", "peak_wavelength", "max_intensity", "total_points", "status"]
+      "output_file_pattern": "output/spectro/spectro_summary_*.csv",
+      "column_names": ["Timestamp", "peak_wavelength", "max_intensity", "mean_intensity", "std_intensity", "total_points", "status"]
     },
     "partector2pro": {
       "type": "Partector2Pro",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 3,
       "identifiers": {
