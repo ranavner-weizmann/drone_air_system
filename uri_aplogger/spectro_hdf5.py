@@ -35,6 +35,8 @@ class HDF5Spectrometer:
         # Create timestamp for all output files
         self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
+        Path(f'output/spectro').mkdir(parents=True, exist_ok=True)
+
         # Output files
         self.summary_csv = f'output/spectro/spectro_summary_{self.timestamp}.csv'
         self.hdf5_file = f'output/spectro/spectro_full_{self.timestamp}.h5'

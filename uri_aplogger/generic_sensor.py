@@ -41,20 +41,54 @@ class GenericSensor:
         signal.signal(signal.SIGINT, self.signal_handler)
         
         # Create output directory
-        Path('output').mkdir(exist_ok=True)
+        Path(f'output/{self.name}').mkdir(parents=True, exist_ok=True)
 
     def setup_logging(self):
-        """Setup common logging format"""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        logging.basicConfig(
-            format=f'%(asctime)s {self.name}: %(message)s',
-            level=logging.INFO,
-            handlers=[
-                logging.StreamHandler(),
-                logging.FileHandler(f'output/{self.name}/{self.name}_log_{timestamp}.log')
-            ]
-        )
+        """Setup logging based on config verbosity."""
+        log_cfg = (self.config or {}).get("logging", {})
+        verbosity = int(log_cfg.get("verbosity", 2))
+        to_console = bool(log_cfg.get("console", True))
+        to_file = bool(log_cfg.get("file", True))
+
+        # Map verbosity -> logging level
+        level_map = {
+            0: logging.CRITICAL,  # we'll disable below anyway
+            1: logging.WARNING,
+            2: logging.INFO,
+            3: logging.DEBUG,
+        }
+        level = level_map.get(verbosity, logging.INFO)
+
+        # Create logger unique to this sensor
         self.logger = logging.getLogger(self.name)
+        self.logger.handlers.clear()
+        self.logger.propagate = False  # don't double-log via root logger
+
+        if verbosity <= 0:
+            # Completely silence this sensor's logger
+            self.logger.addHandler(logging.NullHandler())
+            self.logger.setLevel(logging.CRITICAL)
+            return
+
+        self.logger.setLevel(level)
+
+        formatter = logging.Formatter(f"%(asctime)s {self.name}: %(message)s")
+
+        # Ensure per-sensor output directory exists (important!)
+        Path(f"output/{self.name}").mkdir(parents=True, exist_ok=True)
+
+        if to_console:
+            sh = logging.StreamHandler()
+            sh.setLevel(level)
+            sh.setFormatter(formatter)
+            self.logger.addHandler(sh)
+
+        if to_file:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fh = logging.FileHandler(f"output/{self.name}/{self.name}_log_{timestamp}.log")
+            fh.setLevel(level)
+            fh.setFormatter(formatter)
+            self.logger.addHandler(fh)
         
 
     def signal_handler(self, sig, frame):
