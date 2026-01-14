@@ -35,8 +35,9 @@ class GenericSensor:
         self.timeout = config.get('timeout', 2)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.output_file = config.get('output_file', f'output/{name.lower()}/{name.lower()}_data_{timestamp}.csv')
-        
         self.setup_logging()
+        print(f"{self.logger.name} logger initialized.")
+        print(f"{self.logger.info}")
         signal.signal(signal.SIGINT, self.signal_handler)
         
         # Create output directory
@@ -44,12 +45,17 @@ class GenericSensor:
 
     def setup_logging(self):
         """Setup common logging format"""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         logging.basicConfig(
-            format=f"%(asctime)s {self.name}: %(message)s",
+            format=f'%(asctime)s {self.name}: %(message)s',
             level=logging.INFO,
-            handlers=[logging.StreamHandler()]
+            handlers=[
+                logging.StreamHandler(),
+                logging.FileHandler(f'output/{self.name}/{self.name}_log_{timestamp}.log')
+            ]
         )
         self.logger = logging.getLogger(self.name)
+        
 
     def signal_handler(self, sig, frame):
         """Handle shutdown signals"""
@@ -229,16 +235,20 @@ class GenericSensor:
 
                 # Data reading and processing
                 if self.serial_conn and self.serial_conn.is_open:
-                    raw_data = self.read_serial_data()
-                    if raw_data:
-                        parsed_data = self.parse_data(raw_data)
-                        if self.is_valid_data(parsed_data):
-                            self.write_data(writer, parsed_data)
-                            csvfile.flush()
-                            self.consecutive_failures = 0
-                            data_count += 1
-                            last_data_time = current_time
-                
+                    try:
+                        raw_data = self.read_serial_data()
+                        if raw_data:
+                            parsed_data = self.parse_data(raw_data)
+                            if self.is_valid_data(parsed_data):
+                                self.write_data(writer, parsed_data)
+                                csvfile.flush()
+                                self.consecutive_failures = 0
+                                data_count += 1
+                                last_data_time = current_time
+                    except Exception as e:
+                        self.logger.error(f"Processing error: {e}")
+                        self.consecutive_failures += 1
+                    
                 # If no data for a while, try to read anyway (some devices don't show in_waiting properly)
                 elif current_time - last_data_time > 5 and self.serial_conn:
                     try:

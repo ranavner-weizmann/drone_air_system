@@ -45,7 +45,7 @@
     "spectro": {
       "type": "spectrometer",
       "script": "spectro_hdf5.py",
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 2,
       "output_file_pattern": "output/spectro/spectro_summary_*.csv",
