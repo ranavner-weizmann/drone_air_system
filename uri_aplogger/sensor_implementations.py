@@ -189,6 +189,77 @@ class Partector2ProSensor(GenericSensor):
             self.logger.error(f"Parse error: {e}, data: {data}")
             return None
 
+class MiniaethMA200Sensor(GenericSensor):
+    def __init__(self, name, config):
+        super().__init__(name, config)
+        self.baudrate = config.get("baudrate", 1000000)
+        self.timeout = config.get("timeout", 1)
+
+        # Poll rate (seconds) — IMPORTANT so we don’t spam dr
+        self.poll_interval = float(config.get("poll_interval", 1.0))
+        self._last_poll = 0.0
+
+    def read_serial_data(self):
+        # Ensure connection
+        if not self.serial_conn or not self.serial_conn.is_open:
+            if not self.init_serial():
+                return None
+
+        # Throttle polling (GenericSensor.run loops every 0.1s) :contentReference[oaicite:2]{index=2}
+        now = time.time()
+        if now - self._last_poll < self.poll_interval:
+            return None
+        self._last_poll = now
+
+        try:
+            # Clear any queued junk so we read the freshest response
+            try:
+                self.serial_conn.reset_input_buffer()
+            except Exception:
+                pass
+
+            self.serial_conn.write(b"dr\r")
+
+            # Read for up to ~timeout seconds; skip echo/blank lines
+            deadline = time.time() + max(1.0, float(self.timeout))
+            while time.time() < deadline:
+                raw = self.serial_conn.readline()
+                if not raw:
+                    continue
+                line = raw.decode("utf-8", errors="ignore").strip()
+
+                # DEBUG: show everything we receive
+                self.logger.debug(f"MA200 RX: {line!r}")
+
+                if not line:
+                    continue
+                if line.lower() == "dr":
+                    continue
+                if line.startswith("MA200-") and "," in line:
+                    return line
+
+            self.logger.debug("MA200: no valid data line received this poll")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"MA200 read error: {e}")
+            self.consecutive_failures += 1
+            if self.serial_conn:
+                self.serial_conn.close()
+                self.serial_conn = None
+            return None
+
+    def parse_data(self, data):
+        try:
+            parts = [p.strip() for p in data.split(",")]
+            parts.insert(0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            self.logger.debug(f"MA200 parsed fields: {len(parts)}")
+            return parts
+        except Exception as e:
+            self.logger.error(f"Parse error: {e}, data: {data}")
+            return None
+
+
 # Factory function to create sensors
 def create_sensor(sensor_type, name, config):
     """Factory function to create appropriate sensor instance"""
@@ -197,6 +268,7 @@ def create_sensor(sensor_type, name, config):
         'POM': POMSensor,
         'TriSonica': TriSonicaSensor,
         'Partector2Pro': Partector2ProSensor,
+        'MiniaethMA200': MiniaethMA200Sensor,
         'Generic': GenericSensor  # Fallback
     }
     

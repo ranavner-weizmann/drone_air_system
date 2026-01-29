@@ -70,6 +70,19 @@
       "baudrate": 115200,
       "timeout": 2,
       "column_names": ["Timestamp", "time_since_start_s", "charger_diffusion_current_nA", "charger_high_voltage_V", "electrometer1_mV", "electrometer2_mV", "electrometer1_amplitude_mV", "electrometer2_amplitude_mV", "temperature_C", "relative_humidity_percent", "status", "precipitator_voltage_V", "battery_voltage_V", "flow_lpm", "LDSA_um2_cm3", "diameter_nm", "number_1_cm3", "orifice_pressure_Pa", "absolute_pressure_mbar"]
+    },
+    "miniaeth": {
+      "type": "MiniaethMA200",
+      "script": "sensor_runner.py",
+      "enabled": true,
+
+      "identifiers": { "vendor_id": "0403", "model_id": "6001" },
+      "baudrate": 1000000,
+      "timeout": 1,
+      "poll_interval": 1.0,
+
+      "logging": { "verbosity": 3, "console": true, "file": true },
+      "column_names": ["Timestamp", "accel_x", "accel_y", "accel_z", "battery", "blue_ATN1", "blue_ATN2", "blue_BC1", "blue_BC2", "blue_BCc", "blue_K", "blue_ref", "blue_sen1", "blue_sen2", "datum_id", "flow1", "flow2", "flow_setpoint", "flow_total", "gps_lat", "gps_long", "gps_speed", "green_ATN1", "green_ATN2", "green_BC1", "green_BC2", "green_BCc", "green_K", "green_ref", "green_sen1", "green_sen2", "int_pressure", "int_temp", "IR_ATN1", "IR_ATN2","IR_BC1", "IR_BC2", "IR_BCc", "IR_K", "IR_ref", "IR_sen1", "IR_sen2", "red_ATN1", "red_ATN2", "red_BC1", "red_BC2", "red_BCc", "red_K", "red_ref", "red_sen1", "red_sen2", "sample_dewpoint", "sample_RH", "sample_temp", "status","tape_pos", "timebase", "timezone_offset", "UV_ATN1", "UV_ATN2", "UV_BC1", "UV_BC2", "UV_BCc", "UV_K", "UV_ref", "UV_sen1", "UV_sen2", "date_time_GMT"]
     }
   },
   "merger": {
