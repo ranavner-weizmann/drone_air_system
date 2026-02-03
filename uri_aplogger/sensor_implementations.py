@@ -259,6 +259,175 @@ class MiniaethMA200Sensor(GenericSensor):
             self.logger.error(f"Parse error: {e}, data: {data}")
             return None
 
+import socket
+import csv
+from pathlib import Path
+
+class POPSSensor(GenericSensor):
+    """
+    POPS UDP -> CSV sensor.
+    Replaces legacy pops_class UDP behavior but uses the same CSV/merge conventions.
+    """
+
+    def __init__(self, name, config):
+        super().__init__(name, config)
+        self.udp_ip = config.get("udp_ip", "0.0.0.0")
+        self.udp_port = int(config.get("udp_port", 10080))
+        self.buffer_size = int(config.get("buffer_size", 8192))
+        # socket and control flags
+        self._sock = None
+        self._sock_timeout = float(config.get("socket_timeout", 0.5))
+        # GenericSensor fields used for reconnect/failure handling
+        self.reconnect_delay = config.get("reconnect_delay", self.reconnect_delay)
+        self.max_failures = config.get("max_failures", self.max_failures)
+
+    def _open_socket(self):
+        if self._sock:
+            return True
+        try:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._sock.bind((self.udp_ip, self.udp_port))
+            self._sock.settimeout(self._sock_timeout)
+            self.logger.info(f"POPS listening on UDP {self.udp_ip}:{self.udp_port}")
+            self.consecutive_failures = 0
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to open POPS UDP socket: {e}")
+            self._sock = None
+            self.consecutive_failures += 1
+            return False
+
+    def _close_socket(self):
+        if self._sock:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
+
+    def read_udp_packet(self):
+        """Non-blocking-ish receive that returns decoded string or None."""
+        if not self._sock:
+            if not self._open_socket():
+                return None
+
+        try:
+            data, addr = self._sock.recvfrom(self.buffer_size)
+            if not data:
+                return None
+            msg = data.decode("utf-8", errors="ignore").strip("\x00\r\n ")
+            self.logger.debug(f"POPS RX from {addr}: {msg[:200]!r}")
+            return msg
+        except socket.timeout:
+            return None
+        except Exception as e:
+            self.logger.error(f"POPS read error: {e}")
+            self.consecutive_failures += 1
+            # close socket so next loop tries to reopen
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
+            return None
+
+    def parse_data(self, data):
+        """
+        Legacy POPS payloads were comma-separated and code used message[3:].
+        We follow that behavior: split, take fields from index 3 onward,
+        then prepend a timestamp so CSV matches your other sensors.
+        """
+        try:
+            parts = [p.strip() for p in data.split(",")]
+            values = parts[3:] if len(parts) > 3 else []
+            row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S")] + values
+
+            # Ensure exact column count (pad/truncate) to match config column_names
+            expected = len(self.config.get("column_names", []))
+            if expected:
+                if len(row) < expected:
+                    row += [""] * (expected - len(row))
+                elif len(row) > expected:
+                    row = row[:expected]
+            return row
+        except Exception as e:
+            self.logger.error(f"POPS parse error: {e}, raw={data!r}")
+            return None
+
+    def run(self):
+        """Own run loop (UDP needs its own flow, so we don't call GenericSensor.run)."""
+        self.logger.info(f"Starting POPS UDP listener: {self.udp_ip}:{self.udp_port}")
+
+        # Ensure output dir / file exist, then append rows
+        Path(f'output/{self.name}').mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.output_file = self.config.get('output_file', f'output/{self.name}/{self.name}_data_{timestamp}.csv')
+
+        try:
+            # Initialize CSV with headers if needed
+            if not Path(self.output_file).exists():
+                with open(self.output_file, 'w', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(self.config.get('column_names', []))
+                self.logger.info(f"Created POPS output file: {self.output_file}")
+        except Exception as e:
+            self.logger.error(f"Failed to create POPS output file: {e}")
+            return
+
+        last_reconnect = time.time()
+        data_count = 0
+        self.running = True
+
+        with open(self.output_file, 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+
+            while self.running:
+                now = time.time()
+                # Try to ensure socket is open periodically (reconnect_delay from GenericSensor)
+                if not self._sock and now - last_reconnect >= self.reconnect_delay:
+                    self.logger.info("Attempting to (re)open POPS socket...")
+                    self._open_socket()
+                    last_reconnect = now
+
+                # Read one UDP packet (if any)
+                packet = self.read_udp_packet()
+                if packet:
+                    parsed = self.parse_data(packet)
+                    if parsed:
+                        try:
+                            writer.writerow(parsed)
+                            csvfile.flush()
+                            data_count += 1
+                            self.consecutive_failures = 0
+                            # log a short sample
+                            sample_fields = [str(f) for f in parsed[1:4] if f]
+                            if sample_fields:
+                                self.logger.info(f"Written: {', '.join(sample_fields)}")
+                        except Exception as e:
+                            self.logger.error(f"POPS write error: {e}")
+
+                # Failure handling similar to GenericSensor
+                if self.consecutive_failures >= self.max_failures:
+                    self.logger.warning(f"POPS: consecutive failures >= {self.max_failures}, closing socket and retrying after {self.reconnect_delay}s")
+                    self._close_socket()
+                    self.consecutive_failures = 0
+                    last_reconnect = now
+
+                time.sleep(0.1)
+
+        # cleanup
+        self._close_socket()
+        self.logger.info(f"POPS stopped. Total rows: {data_count}")
+
+    def teardown(self):
+        # Ensure socket closed if framework calls teardown
+        try:
+            self._close_socket()
+        except Exception:
+            pass
+        super().signal_handler(None, None)
+
 
 # Factory function to create sensors
 def create_sensor(sensor_type, name, config):
@@ -269,6 +438,7 @@ def create_sensor(sensor_type, name, config):
         'TriSonica': TriSonicaSensor,
         'Partector2Pro': Partector2ProSensor,
         'MiniaethMA200': MiniaethMA200Sensor,
+        'POPS': POPSSensor,
         'Generic': GenericSensor  # Fallback
     }
     

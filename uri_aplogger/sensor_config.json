@@ -83,7 +83,27 @@
 
       "logging": { "verbosity": 3, "console": true, "file": true },
       "column_names": ["Timestamp", "accel_x", "accel_y", "accel_z", "battery", "blue_ATN1", "blue_ATN2", "blue_BC1", "blue_BC2", "blue_BCc", "blue_K", "blue_ref", "blue_sen1", "blue_sen2", "datum_id", "flow1", "flow2", "flow_setpoint", "flow_total", "gps_lat", "gps_long", "gps_speed", "green_ATN1", "green_ATN2", "green_BC1", "green_BC2", "green_BCc", "green_K", "green_ref", "green_sen1", "green_sen2", "int_pressure", "int_temp", "IR_ATN1", "IR_ATN2","IR_BC1", "IR_BC2", "IR_BCc", "IR_K", "IR_ref", "IR_sen1", "IR_sen2", "red_ATN1", "red_ATN2", "red_BC1", "red_BC2", "red_BCc", "red_K", "red_ref", "red_sen1", "red_sen2", "sample_dewpoint", "sample_RH", "sample_temp", "status","tape_pos", "timebase", "timezone_offset", "UV_ATN1", "UV_ATN2", "UV_BC1", "UV_BC2", "UV_BCc", "UV_K", "UV_ref", "UV_sen1", "UV_sen2", "date_time_GMT"]
+    },
+    "pops": {
+      "type": "POPS",
+      "script": "sensor_runner.py",
+      "enabled": true,
+      "startup_delay": 2,
+      "restart_delay": 5,
+
+      "udp_ip": "0.0.0.0",
+      "udp_port": 10080,
+      "buffer_size": 4096,
+
+      "column_names": [
+        "Timestamp",
+        "DateTime","TimeSSM","Status","DataStatus","PartCt","HistSum","PartCon","BL","BLTH","STD","MaxSTD","P","TofP",
+        "PumpLife_hrs","WidthSTD","AveWidth","POPS_Flow","PumpFB","LDTemp","LaserFB","LD_Mon","Temp","BatV","Laser_Curent",
+        "Flow_Set","BL_Start","TH_Mult","nbins","logmin","logmax","Skip_Save","MinPeakPts","MaxPeakPts","RawPts",
+        "b0","b1","b2","b3","b4","b5","b6","b7","b8","b9","b10","b11","b12","b13","b14","b15"
+      ]
     }
+
   },
   "merger": {
     "script": "real_time_merger.py",
