@@ -102,7 +102,44 @@
         "Flow_Set","BL_Start","TH_Mult","nbins","logmin","logmax","Skip_Save","MinPeakPts","MaxPeakPts","RawPts",
         "b0","b1","b2","b3","b4","b5","b6","b7","b8","b9","b10","b11","b12","b13","b14","b15"
       ]
+    },
+
+    "ldd": {
+      "type": "LDD",
+      "script": "sensor_runner.py",
+      "enabled": true,
+      "startup_delay": 2,
+      "restart_delay": 5,
+
+      "identifiers": {
+        "vendor_id": "2341",
+        "model_id": "0058"
+      },
+
+      "baudrate": 57600,
+      "timeout": 1,
+
+      "send_ping": true,
+      "setc": 1.40,
+      "sett": 35.0,
+      "do_reset": false,
+
+      "column_names": [
+        "Timestamp",
+        "ErrorNumber","ErrorInstance","ErrorParameter","ErrorText",
+        "LDD_ActualOutputCurrent","LDD_ActualOutputVoltage","LDD_ActualOutputCurrentRaw",
+        "LDD_ActualAnodeVoltage","LDD_ActualCathodeVoltage",
+        "LDD_NominalOutputCurrentRamp",
+        "TEC_TargetObjectTemperature","TEC_NominalObjectTemperatureRamp","TEC_ThermalPowerModelCurrent",
+        "TEC_ActualOutputCurrent","TEC_ActualOutputVoltage",
+        "TEC_ObjectTemperature","TEC_SinkTemperature",
+        "AnalogVoltageInputRawADC","AnalogVoltageInput",
+        "LaserPower","OutputLevel",
+        "DriverInputVoltage","Internal8V","Internal5V","Internal3V3","InternalMinus3V3",
+        "DeviceTemperature","PowerstageTemperature"
+      ]
     }
+
 
   },
   "merger": {

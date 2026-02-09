@@ -428,6 +428,161 @@ class POPSSensor(GenericSensor):
             pass
         super().signal_handler(None, None)
 
+import os
+import errno
+from pathlib import Path
+
+class LDDSensor(GenericSensor):
+    """
+    LDD Arduino (serial) sensor using pyudev identifiers (2341:0058).
+
+    Commands (sent over serial with newline): PING, GET, RESET, SETC <amps>, SETT <degC>
+    Telemetry is CSV lines; header starts with:
+      ErrorNumber,ErrorInstance,ErrorParameter,...
+    """
+
+    def __init__(self, name, config):
+        super().__init__(name, config)
+        self.baudrate = int(config.get("baudrate", 57600))
+        self.timeout = float(config.get("timeout", 1))
+
+        # Optional startup actions
+        self.send_ping = bool(config.get("send_ping", True))
+        self.setc = config.get("setc")  # float amps or None
+        self.sett = config.get("sett")  # float degC or None
+        self.do_reset = bool(config.get("do_reset", False))
+
+        # Track whether we already did startup commands for the current connection
+        self._did_startup_for_connection = False
+
+        self.cmd_fifo = Path(f"output/{self.name}/cmd.fifo")
+        self._fifo_fd = None
+        self._fifo_buf = ""
+
+    def init_serial(self):
+        """
+        Use the standard GenericSensor serial discovery (identifiers via pyudev),
+        then send startup commands once after a successful connection.
+        """
+        ok = super().init_serial()
+        if not ok or not self.serial_conn or not self.serial_conn.is_open:
+            self._did_startup_for_connection = False
+            return False
+
+        # Only once per (re)connection
+        if not self._did_startup_for_connection:
+            try:
+                time.sleep(2)  # Arduino settle time
+                try:
+                    self.serial_conn.reset_input_buffer()
+                except Exception:
+                    pass
+
+                self._send_startup_commands()
+                self._did_startup_for_connection = True
+            except Exception as e:
+                self.logger.warning(f"LDD startup commands failed: {e}")
+                # connection is still OK; let it run anyway
+
+        return True
+
+    def _send_line(self, cmd: str):
+        if not self.serial_conn or not self.serial_conn.is_open:
+            return
+        self.serial_conn.write((cmd.strip() + "\n").encode("utf-8"))
+        self.logger.info(f"TX: {cmd.strip()}")
+
+    def _send_startup_commands(self):
+        if self.send_ping:
+            self._send_line("PING")
+            time.sleep(0.1)
+
+        if self.setc is not None:
+            self._send_line(f"SETC {float(self.setc):.3f}")
+            time.sleep(0.1)
+
+        if self.sett is not None:
+            self._send_line(f"SETT {float(self.sett):.2f}")
+            time.sleep(0.1)
+
+        if self.do_reset:
+            self._send_line("RESET")
+            time.sleep(0.1)
+
+    def parse_data(self, data: str):
+        self._poll_cmd_fifo()
+        try:
+            s = data.strip()
+            if not s:
+                return None
+
+            up = s.upper()
+            # Skip command responses / banners
+            if up.startswith("OK") or up.startswith("ERR") or "COMMANDS" in up or up.startswith("IDENT"):
+                return None
+
+            # Skip header
+            if s.startswith("ErrorNumber,ErrorInstance,ErrorParameter"):
+                return None
+
+            # Telemetry lines are CSV
+            if "," not in s:
+                return None
+
+            parts = [p.strip() for p in s.split(",")]
+
+            # Prepend timestamp to match your framework
+            parts.insert(0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            return parts
+
+        except Exception as e:
+            self.logger.error(f"Parse error: {e}, data: {data!r}")
+            return None
+
+    def _open_cmd_fifo(self):
+        # Ensure dir exists
+        self.cmd_fifo.parent.mkdir(parents=True, exist_ok=True)
+
+        # Only open once
+        if self._fifo_fd is not None:
+            return
+
+        # Only open if FIFO exists (user creates it with mkfifo)
+        if not self.cmd_fifo.exists():
+            return
+
+        try:
+            # Non-blocking read end; won't freeze your sensor loop
+            self._fifo_fd = os.open(str(self.cmd_fifo), os.O_RDONLY | os.O_NONBLOCK)
+            self.logger.info(f"LDD command FIFO opened: {self.cmd_fifo}")
+        except Exception as e:
+            self.logger.warning(f"Could not open command FIFO: {e}")
+            self._fifo_fd = None
+
+    def _poll_cmd_fifo(self):
+        self._open_cmd_fifo()
+        if self._fifo_fd is None:
+            return
+
+        try:
+            chunk = os.read(self._fifo_fd, 4096)
+            if not chunk:
+                # Writer closed; keep FD open (or reopen if you prefer)
+                return
+
+            self._fifo_buf += chunk.decode("utf-8", errors="ignore")
+
+            # Process complete lines only (Enter-delimited)
+            while "\n" in self._fifo_buf:
+                line, self._fifo_buf = self._fifo_buf.split("\n", 1)
+                cmd = line.strip()
+                if cmd:
+                    self._send_line(cmd)
+
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                return  # no data available this loop
+            self.logger.warning(f"FIFO read error: {e}")
 
 # Factory function to create sensors
 def create_sensor(sensor_type, name, config):
@@ -439,6 +594,7 @@ def create_sensor(sensor_type, name, config):
         'Partector2Pro': Partector2ProSensor,
         'MiniaethMA200': MiniaethMA200Sensor,
         'POPS': POPSSensor,
+        'LDD': LDDSensor,
         'Generic': GenericSensor  # Fallback
     }
     
