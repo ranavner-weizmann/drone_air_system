@@ -28,7 +28,12 @@ def main():
         print(f"Available: {list(config['sensors'].keys())}")
         sys.exit(1)
     
-    sensor_config = config['sensors'][sensor_name]
+    global_logging = config.get("logging", {})
+    sensor_config = config["sensors"][sensor_name]
+
+    # Merge: per-sensor overrides global
+    merged_logging = {**global_logging, **sensor_config.get("logging", {})}
+    sensor_config["logging"] = merged_logging
     
     # Create and run sensor
     try:

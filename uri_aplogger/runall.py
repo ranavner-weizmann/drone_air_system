@@ -108,15 +108,18 @@ class CompleteSensorManager:
             args = [sys.executable, absolute_script_path, name]
         else:
             args = [sys.executable, absolute_script_path]
-        
+        log_dir = self.base_path / "output" / "process_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"{name}.log"
+        log_f = open(log_path, "a")
+
         try:
-            # Use base_path as the working directory for the process
             process = subprocess.Popen(
                 args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=log_f,
+                stderr=log_f,
                 text=True,
-                cwd=self.base_path  # Run from base directory
+                cwd=self.base_path
             )
             self.logger.info(f"Started {name} (PID: {process.pid}) from {absolute_script_path}")
             return process
@@ -140,14 +143,19 @@ class CompleteSensorManager:
             self.logger.error(f"Merger script not found: {absolute_script_path}")
             return None
         
+        log_dir = self.base_path / "output" / "process_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "merger.log"
+        log_f = open(log_path, "a")
+
         try:
             # Get interval from config or use default
             interval = merger_config.get('interval', 1.0)
             
             process = subprocess.Popen(
                 [sys.executable, absolute_script_path, '--interval', str(interval)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=log_f,
+                stderr=log_f,
                 text=True,
                 cwd=self.base_path  # Run from base directory
             )

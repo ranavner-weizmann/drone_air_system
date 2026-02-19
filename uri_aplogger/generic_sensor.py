@@ -35,21 +35,61 @@ class GenericSensor:
         self.timeout = config.get('timeout', 2)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.output_file = config.get('output_file', f'output/{name.lower()}/{name.lower()}_data_{timestamp}.csv')
-        
         self.setup_logging()
+        print(f"{self.logger.name} logger initialized.")
+        print(f"{self.logger.info}")
         signal.signal(signal.SIGINT, self.signal_handler)
         
         # Create output directory
-        Path('output').mkdir(exist_ok=True)
+        Path(f'output/{self.name}').mkdir(parents=True, exist_ok=True)
 
     def setup_logging(self):
-        """Setup common logging format"""
-        logging.basicConfig(
-            format=f"%(asctime)s {self.name}: %(message)s",
-            level=logging.INFO,
-            handlers=[logging.StreamHandler()]
-        )
+        """Setup logging based on config verbosity."""
+        log_cfg = (self.config or {}).get("logging", {})
+        verbosity = int(log_cfg.get("verbosity", 2))
+        to_console = bool(log_cfg.get("console", True))
+        to_file = bool(log_cfg.get("file", True))
+
+        # Map verbosity -> logging level
+        level_map = {
+            0: logging.CRITICAL,  # we'll disable below anyway
+            1: logging.WARNING,
+            2: logging.INFO,
+            3: logging.DEBUG,
+        }
+        level = level_map.get(verbosity, logging.INFO)
+
+        # Create logger unique to this sensor
         self.logger = logging.getLogger(self.name)
+        self.logger.handlers.clear()
+        self.logger.propagate = False  # don't double-log via root logger
+
+        if verbosity <= 0:
+            # Completely silence this sensor's logger
+            self.logger.addHandler(logging.NullHandler())
+            self.logger.setLevel(logging.CRITICAL)
+            return
+
+        self.logger.setLevel(level)
+
+        formatter = logging.Formatter(f"%(asctime)s {self.name}: %(message)s")
+
+        # Ensure per-sensor output directory exists (important!)
+        Path(f"output/{self.name}").mkdir(parents=True, exist_ok=True)
+
+        if to_console:
+            sh = logging.StreamHandler()
+            sh.setLevel(level)
+            sh.setFormatter(formatter)
+            self.logger.addHandler(sh)
+
+        if to_file:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fh = logging.FileHandler(f"output/{self.name}/{self.name}_log_{timestamp}.log")
+            fh.setLevel(level)
+            fh.setFormatter(formatter)
+            self.logger.addHandler(fh)
+        
 
     def signal_handler(self, sig, frame):
         """Handle shutdown signals"""
@@ -57,26 +97,65 @@ class GenericSensor:
         self.running = False
 
     def find_device_port(self):
-        """Find device port using vendor/model IDs - Fixed to handle multiple formats"""
+        """Find device port using vendor/model IDs and optional serial_short."""
         try:
+            ids = self.config.get("identifiers")
+            if not isinstance(ids, dict):
+                self.logger.error(f"{self.name}: Missing or invalid 'identifiers' in config")
+                return None
+
+            target_vendor = str(ids.get("vendor_id", "")).lower()
+            target_model = str(ids.get("model_id", "")).lower()
+            target_serial = ids.get("serial_short")
+            target_serial = str(target_serial).lower() if target_serial else None
+
+            if not target_vendor or not target_model:
+                self.logger.error(f"{self.name}: identifiers must include vendor_id and model_id")
+                return None
+
             context = pyudev.Context()
-            for device in context.list_devices(subsystem='tty'):
-                vendor_id = device.get('ID_VENDOR_ID', '')
-                model_id = device.get('ID_MODEL_ID', '')
-                
-                # Try exact match first
-                if (vendor_id == self.config['identifiers']['vendor_id'] and 
-                    model_id == self.config['identifiers']['model_id']):
-                    self.logger.info(f"Found {self.name} at: {device.device_node}")
-                    return device.device_node
-                    
-            # If not found, try case-insensitive and partial matches
-            self.logger.warning(f"{self.name} device not found with exact IDs, trying broader search...")
-            return self._fallback_find_device()
-            
+
+            matches = []
+            for device in context.list_devices(subsystem="tty"):
+                vendor_id = device.get("ID_VENDOR_ID", "").lower()
+                model_id = device.get("ID_MODEL_ID", "").lower()
+                serial_s = device.get("ID_SERIAL_SHORT", "").lower()
+                node = device.device_node
+
+                if vendor_id == target_vendor and model_id == target_model:
+                    # If serial_short is specified, enforce it
+                    if target_serial and serial_s != target_serial:
+                        continue
+                    matches.append((node, serial_s))
+
+            if len(matches) == 1:
+                node, serial_s = matches[0]
+                self.logger.info(f"Found {self.name} at: {node} (serial={serial_s})")
+                return node
+
+            if len(matches) > 1:
+                self.logger.error(
+                    f"{self.name}: Multiple devices match {target_vendor}:{target_model} "
+                    f"{'(no serial_short specified)' if not target_serial else ''} -> {matches}"
+                )
+                return None
+
+            # No matches
+            if target_serial:
+                self.logger.error(
+                    f"{self.name}: No device found for {target_vendor}:{target_model} serial_short={target_serial}"
+                )
+            else:
+                self.logger.error(
+                    f"{self.name}: No device found for {target_vendor}:{target_model}"
+                )
+            return None
+
         except Exception as e:
             self.logger.error(f"Error finding {self.name} port: {e}")
             return None
+
+
 
     def _fallback_find_device(self):
         """Fallback device discovery"""
@@ -129,7 +208,6 @@ class GenericSensor:
             self.consecutive_failures += 1
             return False
 
-    # generic_sensor.py - Updated read_serial_data method
     def read_serial_data(self):
         """Read data from serial port - Common for all sensors"""
         if not self.serial_conn or not self.serial_conn.is_open:
@@ -137,17 +215,24 @@ class GenericSensor:
                 return None
 
         try:
-            # Read available data
-            if self.serial_conn.in_waiting > 0:
+            # For fast data producers like TriSonica, read ALL available data
+            data_chunks = []
+            
+            # Read multiple lines if available
+            while self.serial_conn.in_waiting > 0:
                 line = self.serial_conn.readline()
                 if line:
                     decoded = line.decode('utf-8', errors='ignore').strip()
                     if decoded:
-                        self.logger.debug(f"Raw data: {decoded}")
-                        return decoded
+                        data_chunks.append(decoded)
+                        self.logger.debug(f"Raw data chunk: {decoded}")
             
-            # For some sensors like Partector 2 Pro, we might need to read anyway
-            # Try a non-blocking read with timeout
+            if data_chunks:
+                # For TriSonica, return the most recent complete line
+                # This prevents buffer overflow
+                return data_chunks[-1]
+            
+            # Fallback for other sensors
             try:
                 line = self.serial_conn.readline()
                 if line:
@@ -223,16 +308,20 @@ class GenericSensor:
 
                 # Data reading and processing
                 if self.serial_conn and self.serial_conn.is_open:
-                    raw_data = self.read_serial_data()
-                    if raw_data:
-                        parsed_data = self.parse_data(raw_data)
-                        if self.is_valid_data(parsed_data):
-                            self.write_data(writer, parsed_data)
-                            csvfile.flush()
-                            self.consecutive_failures = 0
-                            data_count += 1
-                            last_data_time = current_time
-                
+                    try:
+                        raw_data = self.read_serial_data()
+                        if raw_data:
+                            parsed_data = self.parse_data(raw_data)
+                            if self.is_valid_data(parsed_data):
+                                self.write_data(writer, parsed_data)
+                                csvfile.flush()
+                                self.consecutive_failures = 0
+                                data_count += 1
+                                last_data_time = current_time
+                    except Exception as e:
+                        self.logger.error(f"Processing error: {e}")
+                        self.consecutive_failures += 1
+                    
                 # If no data for a while, try to read anyway (some devices don't show in_waiting properly)
                 elif current_time - last_data_time > 5 and self.serial_conn:
                     try:

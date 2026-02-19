@@ -1,14 +1,8 @@
-# minimal_status.py
-"""
-Minimal sensor status - Just timestamp and V/X
-"""
-
 import csv
 import time
 import os
 import glob
 from datetime import datetime
-from pathlib import Path
 
 def check_sensor(sensor_name, timeout=5):
     """Check if sensor is alive based on file modification time."""
@@ -24,15 +18,7 @@ def check_sensor(sensor_name, timeout=5):
     return 'V' if file_age < timeout else 'X'
 
 def main():
-    # Get the path to data_to_sdk folder
-    script_dir = Path(__file__).parent  # Current script's directory
-    parent_dir = script_dir.parent  # drone_air_system folder
-    data_to_sdk_dir = parent_dir / 'data_to_sdk'  # Target output directory
-    
-    # Ensure the output directory exists
-    data_to_sdk_dir.mkdir(exist_ok=True)
-    
-    # Sensor list and timeouts
+    # Sensor list and timeouts (POM gets 15s, others 6s)
     sensors = {
         'imet': 6,
         'pom': 15,
@@ -41,9 +27,11 @@ def main():
         'partector2pro': 8
     }
     
-    # Create output file in data_to_sdk
+    # Create output file
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = data_to_sdk_dir / f'minimal_status_{timestamp}.csv'  # Changed path
+    output_file = f'output/minimal_status_{timestamp}.csv'
+    
+    os.makedirs('output', exist_ok=True)
     
     # Write header
     with open(output_file, 'w', newline='') as f:
