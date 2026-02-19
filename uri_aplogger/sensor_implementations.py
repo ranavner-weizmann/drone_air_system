@@ -737,6 +737,74 @@ class PumpSensor(GenericSensor):
         ]
         return row
 
+class CavitySensor(GenericSensor):
+    """
+    Merged Arduino sensor (LDD + Pump) that outputs ONE CSV row per second.
+
+    Expected Arduino output:
+      - a header line once (starts with: "ms,ErrorNumber,...")
+      - then rows:
+          <ms>,<ErrorNumber>,...,<PowerstageTemperature>,<pump_rpm>,<pressure_mb>,<temp_c>,<humidity_pct>,<power_pct>,<pressure_status>
+      - also may output "OK ..." / "ERR ..." / "IDENT ..." lines (we skip)
+
+    We prepend a wall-clock Timestamp (like other sensors), and then log the remaining fields.
+    """
+
+    def __init__(self, name, config):
+        super().__init__(name, config)
+        # Your merged Arduino uses 115200 for USB serial
+        self.baudrate = int(config.get("baudrate", 115200))
+        self.timeout = float(config.get("timeout", 1))
+
+        # The merged Arduino rows include an "ms" field first.
+        self._expect_ms_field = bool(config.get("expect_ms_field", True))
+
+    def parse_data(self, data: str):
+        try:
+            s = data.strip()
+            if not s:
+                return None
+
+            up = s.upper()
+
+            # Skip non-data chatter / command acks
+            if up.startswith("OK") or up.startswith("ERR") or up.startswith("IDENT") or "COMMANDS" in up:
+                return None
+
+            # Skip header line from Arduino
+            # (your merged sketch prints a header starting with "ms,")
+            if s.lower().startswith("ms,"):
+                return None
+
+            # Must be CSV-like
+            if "," not in s:
+                return None
+
+            parts = [p.strip() for p in s.split(",")]
+
+            # Basic sanity: if we expect ms, ensure first field is int-ish
+            if self._expect_ms_field:
+                if not parts or not parts[0].isdigit():
+                    # Not a data row
+                    return None
+
+            # Prepend wall-clock timestamp for your system
+            row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S")] + parts
+
+            # Enforce column count if column_names is provided (like POPS does)
+            expected = len(self.config.get("column_names", []))
+            if expected:
+                if len(row) < expected:
+                    row += [""] * (expected - len(row))
+                elif len(row) > expected:
+                    row = row[:expected]
+
+            return row
+
+        except Exception as e:
+            self.logger.error(f"Cavity parse error: {e}, data: {data!r}")
+            return None
+
     
 # Factory function to create sensors
 def create_sensor(sensor_type, name, config):
@@ -750,6 +818,7 @@ def create_sensor(sensor_type, name, config):
         'POPS': POPSSensor,
         'LDD': LDDSensor,
         'Pump': PumpSensor,
+        'Cavity': CavitySensor,
         'Generic': GenericSensor  # Fallback
     }
     
