@@ -173,45 +173,33 @@ class VitalsExporter:
         """Extract only the vital columns from a sensor data row"""
         if sensor_name not in self.vital_columns:
             return None
-        
+
         config = self.config['sensors'][sensor_name]
         column_names = config.get('column_names', [])
         vital_def = self.vital_columns[sensor_name]
         vital_cols = vital_def['columns']
-        
-        # Find indices of vital columns
-        vital_indices = []
-        for col in vital_cols:
+
+        vitals = {}
+
+        for i, col in enumerate(vital_cols):
             try:
-                idx = column_names.index(col)
-                vital_indices.append(idx)
+                col_idx = column_names.index(col)
             except ValueError:
-                # Column not found in this sensor's data
                 self.logger.warning(f"Vital column '{col}' not found in {sensor_name} data")
                 continue
-        
-        # Extract values for vital columns
-        vitals = {}
-        timestamp = None
-        
-        for i, col_idx in enumerate(vital_indices):
+
             if col_idx < len(row):
-                col_name = vital_cols[i]
                 value = row[col_idx]
-                
-                if col_name == 'Timestamp':
-                    timestamp = value
+
+                # Use alias if available
+                if 'aliases' in vital_def and i < len(vital_def['aliases']):
+                    display_name = vital_def['aliases'][i]
                 else:
-                    # Use alias if available, otherwise use original column name
-                    alias_idx = i - 1 if col_name == 'Timestamp' else i
-                    if 'aliases' in vital_def and alias_idx < len(vital_def['aliases']):
-                        display_name = vital_def['aliases'][alias_idx]
-                    else:
-                        display_name = f"{sensor_name}_{col_name}"
-                    
-                    vitals[display_name] = value
-        
-        return timestamp, vitals
+                    display_name = f"{sensor_name}_{col}"
+
+                vitals[display_name] = value
+
+        return vitals
     
     def update_sensor_data(self):
         """Update vitals data from all sensors"""
@@ -243,120 +231,85 @@ class VitalsExporter:
     
     def get_vitals_row(self):
         """Create a vitals row from the latest data of all sensors"""
-        # Use current time as primary timestamp
+        headers = self.get_vitals_headers()
+
         row = {
             'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
-        
-        # Add vitals from each sensor
-        for sensor_name, vitals in self.latest_data.items():
+
+        # Initialize all expected headers with empty values
+        for header in headers:
+            if header != "Timestamp":
+                row[header] = ""
+
+        # Fill in available vitals
+        for vitals in self.latest_data.values():
             if vitals:
-                row.update(vitals)
-        
+                for key, value in vitals.items():
+                    if key in row:
+                        row[key] = value
+
         return row
     
     def get_vitals_headers(self):
         """Generate headers for the vitals CSV file"""
         headers = ['Timestamp']
 
-        
-        # Add all vital data headers
         for sensor_name, vital_def in self.vital_columns.items():
             if sensor_name in self.sensor_files:
-                # Skip timestamp column (already added above)
-                vital_cols = vital_def['columns'][1:]  # Exclude 'Timestamp'
-                
+                vital_cols = vital_def['columns']
+
                 for i, col in enumerate(vital_cols):
-                    # Use alias if available
                     if 'aliases' in vital_def and i < len(vital_def['aliases']):
                         headers.append(vital_def['aliases'][i])
                     else:
                         headers.append(f"{sensor_name}_{col}")
-        
+
         return headers
     
     def write_vitals_data(self):
-        """Write vitals data to CSV file"""
-        # Ensure output directory exists
+        """Write vitals data to CSV files"""
         Path('output').mkdir(exist_ok=True)
-        Path('../data_to_sdk').mkdir(exist_ok=True)
-        
-        # Initialize CSV file if it doesn't exist
+        Path('./data_to_sdk').mkdir(exist_ok=True)
+
+        headers = self.get_vitals_headers()
+
+        # Initialize files if needed
         if not os.path.exists(self.vitals_file):
             with open(self.vitals_file, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=self.get_vitals_headers())
+                writer = csv.DictWriter(f, fieldnames=headers)
                 writer.writeheader()
-            self.logger.info(f"Created vitals output file: {self.vitals_file}")
-            self.logger.info(f"Vitals columns: {', '.join(self.get_vitals_headers())}")
-        
+
         if not os.path.exists(self.vitals_live):
             with open(self.vitals_live, 'w', newline='') as f:
-                writerl = csv.DictWriter(f, fieldnames=self.get_vitals_headers())
-                writerl.writeheader()
-            self.logger.info(f"Created live vitals file: {self.vitals_live}")
-            self.logger.info(f"Live vitals columns: {', '.join(self.get_vitals_headers())}")
-        
-        # Open file in append mode
-        with open(self.vitals_file, 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=self.get_vitals_headers())
-            
-            last_status_time = time.time()
-            
-            while self.running:
-                try:
-                    # Update data from all sensors
-                    self.update_sensor_data()
-                    
-                    # Create and write vitals row
-                    vitals_row = self.get_vitals_row()
-                    writer.writerow(vitals_row)
-                    f.flush()  # Ensure data is written immediately
-                    
-                    # Log status every 30 seconds
-                    current_time = time.time()
-                    if current_time - last_status_time >= 30:
-                        active_sensors = [name for name, data in self.latest_data.items() if data]
-                        self.logger.info(f"Exporting vitals from {len(active_sensors)} sensors: {', '.join(active_sensors)}")
-                        last_status_time = current_time
-                    
-                    time.sleep(self.output_interval)
-                    
-                except KeyboardInterrupt:
-                    self.logger.info("Keyboard interrupt received")
-                    self.running = False
-                    break
-                except Exception as e:
-                    self.logger.error(f"Error in vitals export loop: {e}")
-                    time.sleep(1)
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
 
-        with open(self.vitals_live, 'w', newline='') as f:
-            writerl = csv.DictWriter(f, fieldnames=self.get_vitals_headers())
-            
-            last_status_time = time.time()
-            
+        # Open BOTH files at once
+        with open(self.vitals_file, 'a', newline='') as f_main, \
+            open(self.vitals_live, 'w', newline='') as f_live:
+
+            writer_main = csv.DictWriter(f_main, fieldnames=headers)
+            writer_live = csv.DictWriter(f_live, fieldnames=headers)
+
             while self.running:
                 try:
-                    # Update data from all sensors
                     self.update_sensor_data()
-                    
-                    # Create and write vitals row
                     vitals_row = self.get_vitals_row()
-                    writerl.writerow(vitals_row)
-                    f.flush()  # Ensure data is written immediately
-                    
-                    # Log status every 30 seconds
-                    current_time = time.time()
-                    if current_time - last_status_time >= 30:
-                        active_sensors = [name for name, data in self.latest_data.items() if data]
-                        self.logger.info(f"Exporting vitals from {len(active_sensors)} sensors: {', '.join(active_sensors)}")
-                        last_status_time = current_time
-                    
+
+                    # Append to historical file
+                    writer_main.writerow(vitals_row)
+                    f_main.flush()
+
+                    # Overwrite live file with latest row only
+                    f_live.seek(0)
+                    writer_live.writeheader()
+                    writer_live.writerow(vitals_row)
+                    f_live.truncate()
+                    f_live.flush()
+
                     time.sleep(self.output_interval)
-                    
-                except KeyboardInterrupt:
-                    self.logger.info("Keyboard interrupt received")
-                    self.running = False
-                    break
+
                 except Exception as e:
                     self.logger.error(f"Error in vitals export loop: {e}")
                     time.sleep(1)
@@ -370,7 +323,7 @@ class VitalsExporter:
         
         for sensor_name, vital_def in self.vital_columns.items():
             if sensor_name in self.sensor_files:
-                vital_list = vital_def['columns'][1:]  # Exclude 'Timestamp'
+                vital_list = vital_def['columns']
                 self.logger.info(f"  {sensor_name}: {', '.join(vital_list)}")
         
         # Start the main write loop
