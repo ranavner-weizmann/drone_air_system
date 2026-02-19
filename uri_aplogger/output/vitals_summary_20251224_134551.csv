@@ -1,0 +1,4 @@
+Timestamp,Export_Time,imet_Timestamp,pom_Timestamp,trisonica_Timestamp,spectro_Timestamp,partector2pro_Timestamp,iMet_Temp_C,iMet_Pressure_hPa,iMet_Altitude_m,iMet_Lat,iMet_Lon,POM_Ozone_ppb,POM_CellTemp_K,Wind_Speed_m_s,Wind_Direction_deg,Air_Temp_C,Spectro_Peak_nm,Spectro_MaxIntensity,Particle_LDSA,Particle_Size_nm,Particle_Count_#/cm3
+2025-12-24 13:45:51,2025-12-24T13:45:51.803038,,,,,,,,,,,,,,,,,,,,
+2025-12-24 13:45:52,2025-12-24T13:45:52.805103,,,,,,,,,,,,,,,,,,,,
+2025-12-24 13:45:53,2025-12-24T13:45:53.807013,,,,,,,,,,,,,,,,,,,,

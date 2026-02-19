@@ -10,7 +10,7 @@ As you already guessed, the Payload-SDK contains the PSDK repo, and the drone_ai
 
 ## First Part - Setting up the Raspberry Pi  
 
-1. Use the Raspberry Pi Imager to burn this image: one-drive link (this is a pre-build img that DJI supplies, there is no guarantee that it will hold forever and ever)  
+1. Use the Raspberry Pi Imager to burn this image: one-drive link: https://weizmannacil-my.sharepoint.com/:u:/g/personal/ran_avner_weizmann_ac_il/IQCMBK04UkB3S5S6SL3bpX7cASmTtCo0KmFstAWR4B8dJWA?e=aaW2aQ (this is a pre-build img that DJI supplies, there is no guarantee that it will hold forever and ever)  
 2. The password is *rsp*  
 3. Set up the Pi's country and connect to Wi-Fi (ssh is already enabled).  
 4. Get the IP using ifconfig and ssh the Pi from a remote pc.  
@@ -32,6 +32,7 @@ Copy the public key, including the email, and ask Ran to add it to the SSH-Keys 
 
 ### First Setup  
 1. Inside the drone_air_system folder, there is a script called 'first_configuration.sh' - run it with sudo  
+NEED TO ADD CMAKE INSTALLATION 
 2. After running the script, the whole system should be transparent; it should start automatically when the Pi is connected to power.  
  
 ### Explanations  
