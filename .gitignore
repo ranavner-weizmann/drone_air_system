@@ -1,4 +1,6 @@
 data_to_sdk/vitals.csv
+data_from_drone/*.csv
+data_to_sdk/widget_actions_status.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
