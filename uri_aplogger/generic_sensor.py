@@ -97,26 +97,65 @@ class GenericSensor:
         self.running = False
 
     def find_device_port(self):
-        """Find device port using vendor/model IDs - Fixed to handle multiple formats"""
+        """Find device port using vendor/model IDs and optional serial_short."""
         try:
+            ids = self.config.get("identifiers")
+            if not isinstance(ids, dict):
+                self.logger.error(f"{self.name}: Missing or invalid 'identifiers' in config")
+                return None
+
+            target_vendor = str(ids.get("vendor_id", "")).lower()
+            target_model = str(ids.get("model_id", "")).lower()
+            target_serial = ids.get("serial_short")
+            target_serial = str(target_serial).lower() if target_serial else None
+
+            if not target_vendor or not target_model:
+                self.logger.error(f"{self.name}: identifiers must include vendor_id and model_id")
+                return None
+
             context = pyudev.Context()
-            for device in context.list_devices(subsystem='tty'):
-                vendor_id = device.get('ID_VENDOR_ID', '')
-                model_id = device.get('ID_MODEL_ID', '')
-                
-                # Try exact match first
-                if (vendor_id == self.config['identifiers']['vendor_id'] and 
-                    model_id == self.config['identifiers']['model_id']):
-                    self.logger.info(f"Found {self.name} at: {device.device_node}")
-                    return device.device_node
-                    
-            # If not found, try case-insensitive and partial matches
-            self.logger.warning(f"{self.name} device not found with exact IDs, trying broader search...")
-            return self._fallback_find_device()
-            
+
+            matches = []
+            for device in context.list_devices(subsystem="tty"):
+                vendor_id = device.get("ID_VENDOR_ID", "").lower()
+                model_id = device.get("ID_MODEL_ID", "").lower()
+                serial_s = device.get("ID_SERIAL_SHORT", "").lower()
+                node = device.device_node
+
+                if vendor_id == target_vendor and model_id == target_model:
+                    # If serial_short is specified, enforce it
+                    if target_serial and serial_s != target_serial:
+                        continue
+                    matches.append((node, serial_s))
+
+            if len(matches) == 1:
+                node, serial_s = matches[0]
+                self.logger.info(f"Found {self.name} at: {node} (serial={serial_s})")
+                return node
+
+            if len(matches) > 1:
+                self.logger.error(
+                    f"{self.name}: Multiple devices match {target_vendor}:{target_model} "
+                    f"{'(no serial_short specified)' if not target_serial else ''} -> {matches}"
+                )
+                return None
+
+            # No matches
+            if target_serial:
+                self.logger.error(
+                    f"{self.name}: No device found for {target_vendor}:{target_model} serial_short={target_serial}"
+                )
+            else:
+                self.logger.error(
+                    f"{self.name}: No device found for {target_vendor}:{target_model}"
+                )
+            return None
+
         except Exception as e:
             self.logger.error(f"Error finding {self.name} port: {e}")
             return None
+
+
 
     def _fallback_find_device(self):
         """Fallback device discovery"""

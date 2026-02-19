@@ -6,6 +6,7 @@ Sensor-specific implementations
 from generic_sensor import GenericSensor
 from datetime import datetime, timedelta
 import time
+import re
 
 class iMetSensor(GenericSensor):
     """iMet sensor implementation"""
@@ -584,6 +585,159 @@ class LDDSensor(GenericSensor):
                 return  # no data available this loop
             self.logger.warning(f"FIFO read error: {e}")
 
+import re
+import os
+import errno
+from pathlib import Path
+from datetime import datetime
+import time
+
+class PumpSensor(GenericSensor):
+    """
+    Pump + Pressure + Temp + Hum sensor over Arduino serial.
+
+    Accepts either:
+      Pump: 2660 RPM | Pres: 1007.5 mb | Temp: 22.8 C | Hum: 48.5 %
+    or:
+      Pres: 1007.5 mb | Temp: 22.8 C | Hum: 48.5 % | Pump: 2660 RPM
+    """
+
+    LINE_RE = re.compile(
+        r"^\s*(?:Pump:\s*(?P<rpm_a>[-+]?\d+(?:\.\d+)?)\s*RPM\s*\|\s*)?"
+        r"Pres:\s*(?P<pres>(?:ERR|[-+]?\d+(?:\.\d+)?))\s*mb\s*\|\s*"
+        r"Temp:\s*(?P<temp>[-+]?\d+(?:\.\d+)?)\s*C\s*\|\s*"
+        r"Hum:\s*(?P<hum>[-+]?\d+(?:\.\d+)?)\s*%\s*"
+        r"(?:\|\s*Pump:\s*(?P<rpm_b>[-+]?\d+(?:\.\d+)?)\s*RPM)?\s*$",
+        re.IGNORECASE
+    )
+
+    def __init__(self, name, config):
+        super().__init__(name, config)
+        self.baudrate = int(config.get("baudrate", 115200))
+        self.timeout = float(config.get("timeout", 2))
+
+        self.power_setpoint = float(config.get("initial_power", 40.0))
+
+        # FIFO like LDD
+        self.power_fifo = Path(config.get("power_fifo", f"output/{self.name}/power.fifo"))
+        self._fifo_fd = None
+        self._fifo_buf = ""
+
+        self._did_startup_for_connection = False
+
+    def init_serial(self):
+        ok = super().init_serial()
+        if not ok or not self.serial_conn or not self.serial_conn.is_open:
+            self._did_startup_for_connection = False
+            return False
+
+        if not self._did_startup_for_connection:
+            time.sleep(2)
+            try:
+                self.serial_conn.reset_input_buffer()
+            except Exception:
+                pass
+
+            # Apply initial power once per connection
+            self._send_power(self.power_setpoint)
+            self._did_startup_for_connection = True
+
+        return True
+
+    def _send_line(self, cmd: str):
+        if not self.serial_conn or not self.serial_conn.is_open:
+            return
+        self.serial_conn.write((cmd.strip() + "\n").encode("utf-8"))
+        self.logger.info(f"TX: {cmd.strip()}")
+
+    def _send_power(self, percent: float):
+        percent = max(0.0, min(100.0, float(percent)))
+        self.power_setpoint = percent
+        # Your updated sketch supports SETPWR (good)
+        self._send_line(f"SETPWR {percent:.1f}")
+
+    def _open_power_fifo(self):
+        self.power_fifo.parent.mkdir(parents=True, exist_ok=True)
+        if self._fifo_fd is not None:
+            return
+        if not self.power_fifo.exists():
+            return
+        try:
+            self._fifo_fd = os.open(str(self.power_fifo), os.O_RDONLY | os.O_NONBLOCK)
+            self.logger.info(f"Pump power FIFO opened: {self.power_fifo}")
+        except Exception as e:
+            self.logger.warning(f"Could not open pump power FIFO: {e}")
+            self._fifo_fd = None
+
+    def _poll_power_fifo(self):
+        self._open_power_fifo()
+        if self._fifo_fd is None:
+            return
+
+        try:
+            chunk = os.read(self._fifo_fd, 4096)
+            if not chunk:
+                return
+
+            self._fifo_buf += chunk.decode("utf-8", errors="ignore")
+
+            while "\n" in self._fifo_buf:
+                line, self._fifo_buf = self._fifo_buf.split("\n", 1)
+                line = line.strip()
+                if not line:
+                    continue
+
+                # You can type just: 55<enter>
+                try:
+                    val = float(line)
+                except ValueError:
+                    self.logger.warning(f"Ignoring FIFO input (not a number): {line!r}")
+                    continue
+
+                self._send_power(val)
+
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                return
+            self.logger.warning(f"Pump FIFO read error: {e}")
+
+    def parse_data(self, data: str):
+        # FIFO polling piggybacks on incoming lines (like your LDD)
+        self._poll_power_fifo()
+
+        s = data.strip()
+        if not s:
+            return None
+
+        # Skip command replies
+        up = s.upper()
+        if up.startswith("OK") or up.startswith("ERR") or "SYSTEM STARTUP" in up or up.startswith("HDC "):
+            return None
+
+        m = self.LINE_RE.match(s)
+        if not m:
+            # turn this on temporarily if needed:
+            # self.logger.debug(f"Unmatched pump line: {s!r}")
+            return None
+
+        rpm = m.group("rpm_a") or m.group("rpm_b")
+        if rpm is None:
+            return None
+
+        pres_raw = m.group("pres")
+        pres = "" if pres_raw.upper() == "ERR" else float(pres_raw)
+
+        row = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            float(rpm),
+            pres,
+            float(m.group("temp")),
+            float(m.group("hum")),
+            self.power_setpoint
+        ]
+        return row
+
+    
 # Factory function to create sensors
 def create_sensor(sensor_type, name, config):
     """Factory function to create appropriate sensor instance"""
@@ -595,6 +749,7 @@ def create_sensor(sensor_type, name, config):
         'MiniaethMA200': MiniaethMA200Sensor,
         'POPS': POPSSensor,
         'LDD': LDDSensor,
+        'Pump': PumpSensor,
         'Generic': GenericSensor  # Fallback
     }
     

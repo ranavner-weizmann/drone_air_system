@@ -113,8 +113,10 @@
 
       "identifiers": {
         "vendor_id": "2341",
-        "model_id": "0058"
+        "model_id": "0058",
+        "serial_short": "38DE49665154513747202020FF191C23"
       },
+    
 
       "baudrate": 57600,
       "timeout": 1,
@@ -138,9 +140,19 @@
         "DriverInputVoltage","Internal8V","Internal5V","Internal3V3","InternalMinus3V3",
         "DeviceTemperature","PowerstageTemperature"
       ]
+    },
+    "pump": {
+      "type": "Pump",
+      "script": "sensor_runner.py",
+      "enabled": true,
+      "identifiers": { "vendor_id": "2341", "model_id": "0058", "serial_short": "C95C97095154513747202020FF192D24"},
+      "baudrate": 115200,
+      "timeout": 1,
+      
+      "initial_power": 40.0,
+      "power_fifo": "output/pump/power.fifo",
+      "column_names": [ "Timestamp","rpm","pressure_mb","temp_c","humidity_pct", "target_speed"]
     }
-
-
   },
   "merger": {
     "script": "real_time_merger.py",
