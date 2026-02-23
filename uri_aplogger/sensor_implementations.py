@@ -742,24 +742,140 @@ class CavitySensor(GenericSensor):
     Merged Arduino sensor (LDD + Pump) that outputs ONE CSV row per second.
 
     Expected Arduino output:
-      - a header line once (starts with: "ms,ErrorNumber,...")
-      - then rows:
-          <ms>,<ErrorNumber>,...,<PowerstageTemperature>,<pump_rpm>,<pressure_mb>,<temp_c>,<humidity_pct>,<power_pct>,<pressure_status>
-      - also may output "OK ..." / "ERR ..." / "IDENT ..." lines (we skip)
+      - header: "ms,ErrorNumber,..."
+      - rows:   <ms>,<ErrorNumber>,...,<PowerstageTemperature>,<pump_rpm>,<pressure_mb>,<temp_c>,<humidity_pct>,<power_pct>,<pressure_status>
 
-    We prepend a wall-clock Timestamp (like other sensors), and then log the remaining fields.
+    We also support a command FIFO for runtime control:
+      mkfifo output/cavity/cmd.fifo
+      echo "SETC 1.23"  > output/cavity/cmd.fifo
+      echo "SETT 35.0"  > output/cavity/cmd.fifo
+      echo "SETPWR 40"  > output/cavity/cmd.fifo
+      echo "RESET"      > output/cavity/cmd.fifo
     """
 
     def __init__(self, name, config):
         super().__init__(name, config)
-        # Your merged Arduino uses 115200 for USB serial
         self.baudrate = int(config.get("baudrate", 115200))
         self.timeout = float(config.get("timeout", 1))
 
-        # The merged Arduino rows include an "ms" field first.
+        # ms field from Arduino at the start of each row
         self._expect_ms_field = bool(config.get("expect_ms_field", True))
 
+        # Optional startup actions (same idea as LDDSensor + Pump)
+        self.send_ping = bool(config.get("send_ping", True))
+        self.setc = config.get("setc")          # float amps or None
+        self.sett = config.get("sett")          # float degC or None
+        self.do_reset = bool(config.get("do_reset", False))
+        self.initial_power = config.get("initial_power")  # pump power %
+
+        self._did_startup_for_connection = False
+
+        # Single command FIFO for all commands
+        from pathlib import Path
+        self.cmd_fifo = Path(config.get("cmd_fifo", f"output/{self.name}/cmd.fifo"), exist_ok=True)
+        self._fifo_fd = None
+        self._fifo_buf = ""
+
+    # --- serial / startup ---
+
+    def init_serial(self):
+        ok = super().init_serial()
+        if not ok or not self.serial_conn or not self.serial_conn.is_open:
+            self._did_startup_for_connection = False
+            return False
+
+        if not self._did_startup_for_connection:
+            try:
+                time.sleep(2)
+                try:
+                    self.serial_conn.reset_input_buffer()
+                except Exception:
+                    pass
+                self._send_startup_commands()
+                self._did_startup_for_connection = True
+            except Exception as e:
+                self.logger.warning(f"Cavity startup commands failed: {e}")
+
+        return True
+
+    def _send_line(self, cmd: str):
+        if not self.serial_conn or not self.serial_conn.is_open:
+            return
+        self.serial_conn.write((cmd.strip() + "\n").encode("utf-8"))
+        self.logger.info(f"TX: {cmd.strip()}")
+
+    def _send_startup_commands(self):
+        if self.send_ping:
+            self._send_line("PING")
+            time.sleep(0.1)
+
+        if self.setc is not None:
+            self._send_line(f"SETC {float(self.setc):.3f}")
+            time.sleep(0.1)
+
+        if self.sett is not None:
+            self._send_line(f"SETT {float(self.sett):.2f}")
+            time.sleep(0.1)
+
+        if self.initial_power is not None:
+            self._send_line(f"SETPWR {float(self.initial_power):.1f}")
+            time.sleep(0.1)
+
+        if self.do_reset:
+            self._send_line("RESET")
+            time.sleep(0.1)
+
+    # --- FIFO handling (like LDDSensor) ---
+
+    def _open_cmd_fifo(self):
+        # Ensure dir exists
+        self.cmd_fifo.parent.mkdir(parents=True, exist_ok=True)
+
+        if self._fifo_fd is not None:
+            return
+
+        if not self.cmd_fifo.exists():
+            return
+
+        import os, errno
+        try:
+            self._fifo_fd = os.open(str(self.cmd_fifo), os.O_RDONLY | os.O_NONBLOCK)
+            self.logger.info(f"Cavity command FIFO opened: {self.cmd_fifo}")
+        except Exception as e:
+            self.logger.warning(f"Could not open cavity command FIFO: {e}")
+            self._fifo_fd = None
+
+    def _poll_cmd_fifo(self):
+        self._open_cmd_fifo()
+        if self._fifo_fd is None:
+            return
+
+        import os, errno
+        try:
+            chunk = os.read(self._fifo_fd, 4096)
+            if not chunk:
+                # Writer closed, no data this time
+                return
+
+            self._fifo_buf += chunk.decode("utf-8", errors="ignore")
+
+            while "\n" in self._fifo_buf:
+                line, self._fifo_buf = self._fifo_buf.split("\n", 1)
+                cmd = line.strip()
+                if cmd:
+                    self._send_line(cmd)
+
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                return
+            self.logger.warning(f"Cavity FIFO read error: {e}")
+
+    # --- data parsing ---
+
     def parse_data(self, data: str):
+        # Check for any new FIFO commands each time we get a line
+        self._poll_cmd_fifo()
+
         try:
             s = data.strip()
             if not s:
@@ -772,7 +888,6 @@ class CavitySensor(GenericSensor):
                 return None
 
             # Skip header line from Arduino
-            # (your merged sketch prints a header starting with "ms,")
             if s.lower().startswith("ms,"):
                 return None
 
@@ -782,16 +897,15 @@ class CavitySensor(GenericSensor):
 
             parts = [p.strip() for p in s.split(",")]
 
-            # Basic sanity: if we expect ms, ensure first field is int-ish
+            # Expect first field to be ms
             if self._expect_ms_field:
                 if not parts or not parts[0].isdigit():
-                    # Not a data row
                     return None
 
-            # Prepend wall-clock timestamp for your system
+            # Add wall-clock timestamp
             row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S")] + parts
 
-            # Enforce column count if column_names is provided (like POPS does)
+            # Enforce column count if configured
             expected = len(self.config.get("column_names", []))
             if expected:
                 if len(row) < expected:

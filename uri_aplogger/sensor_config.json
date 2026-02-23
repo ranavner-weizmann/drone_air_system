@@ -162,8 +162,7 @@
 
       "identifiers": {
         "vendor_id": "2341",
-        "model_id": "0058",
-        "serial_short": "38DE49665154513747202020FF191C23"
+        "model_id": "0058"
       },
 
       "baudrate": 115200,
@@ -185,7 +184,7 @@
         "LaserPower","OutputLevel",
         "DriverInputVoltage","Internal8V","Internal5V","Internal3V3","InternalMinus3V3",
         "DeviceTemperature","PowerstageTemperature",
-        "pump_rpm","pressure_mb","temp_c","humidity_pct","power_pct","pressure_status"
+        "pump_rpm","pressure_mb","temp_c","humidity_pct","power_pct","pressure_status", "target_speed"
       ]
     }
   },

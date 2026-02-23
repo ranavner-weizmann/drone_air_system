@@ -30,24 +30,36 @@ class VitalsExporter:
         # Define vital columns for each sensor (most important data only)
         self.vital_columns = {
             'imet': {
-                'columns': ['Timestamp', 'temp', 'pressure', 'altitude', 'latitude', 'longitude'],
-                'aliases': ['iMet_Temp_C', 'iMet_Pressure_hPa', 'iMet_Altitude_m', 'iMet_Lat', 'iMet_Lon']
+                'columns': ['temp', 'pressure', 'rel_hum'],
+                'aliases': ['iMet_Temp_C', 'iMet_Pressure_hPa', 'iMet_Relative_Humidity']
             },
             'pom': {
-                'columns': ['Timestamp', 'Ozone_ppb', 'Cell_Temperature_K'],
-                'aliases': ['POM_Ozone_ppb', 'POM_CellTemp_K']
+                'columns': ['Ozone_ppb'],
+                'aliases': ['POM_Ozone_ppb']
             },
             'trisonica': {
-                'columns': ['Timestamp', 'Wind_Speed', 'Wind_Direction', 'Temperature'],
-                'aliases': ['Wind_Speed_m_s', 'Wind_Direction_deg', 'Air_Temp_C']
+                'columns': ['U_Vector', 'V_Vector', 'W_Vector'],
+                'aliases': ['Tri_Wind_U', 'Tri_Wind_V', 'Tri_Wind_W']
             },
             'spectro': {
-                'columns': ['Timestamp', 'peak_wavelength', 'max_intensity'],
+                'columns': ['peak_wavelength', 'max_intensity'],
                 'aliases': ['Spectro_Peak_nm', 'Spectro_MaxIntensity']
             },
             'partector2pro': {
-                'columns': ['Timestamp', 'LDSA_um2_cm3', 'diameter_nm', 'number_1_cm3'],
-                'aliases': ['Particle_LDSA', 'Particle_Size_nm', 'Particle_Count_#/cm3']
+                'columns': ['number_1_cm3', 'battery_voltage_V'],
+                'aliases': ['Partector_Particle_Count_#/cm3', 'Partector_Battery_Voltage_V']
+            },
+            'miniaeth': {
+                'columns': ['blue_BCc'],
+                'aliases': ['Aeth_Blue_BlackCarbon']
+            },
+            'pops': {
+                'columns': ['b4', 'b8', 'b15'],
+                'aliases': ['POPS_Bin_4', 'POPS_Bin_8', 'POPS_Bin_15']
+            },
+            'cavity': {
+                'columns': ['TEC_ActualOutputCurrent', 'TEC_ActualOutputVoltage', 'TEC_TargetObjectTemperature', 'LDD_ActualOutputCurrent', 'TEC_ObjectTemperature', 'temp_c', 'humidity_pct', 'pressure_mb', 'pump_rpm'],
+                'aliases': ['TEC_Output_Current', 'TEC_Output_Voltage', 'TEC_Target_Temperature', 'LDD_Output_Current', 'TEC_Object_Temperature', 'Inline_Temp', 'Inline_Relative_Humidity', 'Inline_Pressure_mbar', 'Pump_RPM']
             }
         }
         
@@ -55,11 +67,11 @@ class VitalsExporter:
         self.sensor_files = {}
         self.sensor_positions = {}
         self.latest_data = {}
-        self.latest_timestamps = {}
         
         # Set up vitals output file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.vitals_file = f'output/vitals_summary_{timestamp}.csv'
+        self.vitals_live = f'../data_to_sdk/vitals.csv'
         
         self.setup_logging()
         self.initialize_sensor_tracking()
@@ -97,7 +109,6 @@ class VitalsExporter:
                 
                 self.sensor_files[sensor_name] = pattern
                 self.latest_data[sensor_name] = {}
-                self.latest_timestamps[sensor_name] = None
                 self.logger.info(f"Tracking vitals from {sensor_name} with pattern: {pattern}")
     
     def find_latest_file(self, pattern):
@@ -217,12 +228,11 @@ class VitalsExporter:
                 if new_lines:
                     # Process each new line
                     for row in new_lines:
-                        timestamp, vitals = self.extract_vitals(sensor_name, row)
+                        vitals = self.extract_vitals(sensor_name, row)
                         
-                        if timestamp and vitals:
+                        if vitals:
                             # Update latest data for this sensor
                             self.latest_data[sensor_name] = vitals
-                            self.latest_timestamps[sensor_name] = timestamp
                             
                             # Log first data point
                             if len(new_lines) == 1:
@@ -236,7 +246,6 @@ class VitalsExporter:
         # Use current time as primary timestamp
         row = {
             'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'Export_Time': datetime.now().isoformat()
         }
         
         # Add vitals from each sensor
@@ -244,20 +253,12 @@ class VitalsExporter:
             if vitals:
                 row.update(vitals)
         
-        # Add sensor-specific timestamps
-        for sensor_name, timestamp in self.latest_timestamps.items():
-            if timestamp:
-                row[f'{sensor_name}_Timestamp'] = timestamp
-        
         return row
     
     def get_vitals_headers(self):
         """Generate headers for the vitals CSV file"""
-        headers = ['Timestamp', 'Export_Time']
-        
-        # Add sensor timestamp headers
-        for sensor_name in self.sensor_files.keys():
-            headers.append(f'{sensor_name}_Timestamp')
+        headers = ['Timestamp']
+
         
         # Add all vital data headers
         for sensor_name, vital_def in self.vital_columns.items():
@@ -278,6 +279,7 @@ class VitalsExporter:
         """Write vitals data to CSV file"""
         # Ensure output directory exists
         Path('output').mkdir(exist_ok=True)
+        Path('../data_to_sdk').mkdir(exist_ok=True)
         
         # Initialize CSV file if it doesn't exist
         if not os.path.exists(self.vitals_file):
@@ -286,6 +288,13 @@ class VitalsExporter:
                 writer.writeheader()
             self.logger.info(f"Created vitals output file: {self.vitals_file}")
             self.logger.info(f"Vitals columns: {', '.join(self.get_vitals_headers())}")
+        
+        if not os.path.exists(self.vitals_live):
+            with open(self.vitals_live, 'w', newline='') as f:
+                writerl = csv.DictWriter(f, fieldnames=self.get_vitals_headers())
+                writerl.writeheader()
+            self.logger.info(f"Created live vitals file: {self.vitals_live}")
+            self.logger.info(f"Live vitals columns: {', '.join(self.get_vitals_headers())}")
         
         # Open file in append mode
         with open(self.vitals_file, 'a', newline='') as f:
@@ -301,6 +310,38 @@ class VitalsExporter:
                     # Create and write vitals row
                     vitals_row = self.get_vitals_row()
                     writer.writerow(vitals_row)
+                    f.flush()  # Ensure data is written immediately
+                    
+                    # Log status every 30 seconds
+                    current_time = time.time()
+                    if current_time - last_status_time >= 30:
+                        active_sensors = [name for name, data in self.latest_data.items() if data]
+                        self.logger.info(f"Exporting vitals from {len(active_sensors)} sensors: {', '.join(active_sensors)}")
+                        last_status_time = current_time
+                    
+                    time.sleep(self.output_interval)
+                    
+                except KeyboardInterrupt:
+                    self.logger.info("Keyboard interrupt received")
+                    self.running = False
+                    break
+                except Exception as e:
+                    self.logger.error(f"Error in vitals export loop: {e}")
+                    time.sleep(1)
+
+        with open(self.vitals_live, 'w', newline='') as f:
+            writerl = csv.DictWriter(f, fieldnames=self.get_vitals_headers())
+            
+            last_status_time = time.time()
+            
+            while self.running:
+                try:
+                    # Update data from all sensors
+                    self.update_sensor_data()
+                    
+                    # Create and write vitals row
+                    vitals_row = self.get_vitals_row()
+                    writerl.writerow(vitals_row)
                     f.flush()  # Ensure data is written immediately
                     
                     # Log status every 30 seconds

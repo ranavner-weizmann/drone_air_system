@@ -38,7 +38,36 @@ NEED TO ADD CMAKE INSTALLATION
 ### Explanations  
 
 The system works as follows:  
-to be filled by Uri  
+
+## File list:
+- `runall.py` - Master script, handles running and stopping all other scripts.
+- `sensor_runner.py` - Instantiates the sensor reader. Can be individually ran with the name of the sensor as an argument. "python sensor_runner.py [sensor name]"
+- `sensor_implementations.py` - Sensor-specific settings for reading data from each sensor. Includes a class for every sensor (iMetSensor, POMSensor, TriSonicaSensor, Partector2ProSensor, POPSSensor, LDDSensor), which all extend GenericSensor.
+- `generic_sensor.py` - Class that includes all shared aspects of reading data, such as connecting by serial or writing data to csv.
+- `spectro_hdf5.py` and `read_hdf5.py` - Outlier sensor that reads data with a custom library, and not by serial, required a separate class. Outputs both to csv and HDF5 for lighter file sizes and better reading of spectra.
+- `real_time_merger.py` - Finds all individual csvs from the `/output` folder, and merges them into a single csv.
+- `sensor_config.json` - File that instructs `runall.py` on which sensors to run or not to run, with which headers, vendor/model ID, etc. 
+- `vitals.py` - Writes the stripped down version of only the essential data from the drone in real time.
+- `vx.py` - Checks if all drones are live or dead. (V/X)
+
+## Obsolete:
+- Files in the `/obsolete` folder - Legacy files that are, titularly, obsolete. 
+
+## Utilisation:
+As long as everything is functional, the only file you need to run is `runall.py`.
+For individual debugging, as stated before, run `sensor_runner.py` and pass the sensor name as an attribute.
+
+### Special case:
+The Sensor allows for sending commands in real time.
+To do that, first run `cat > output/ldd/cmd.fifo` in the terminal, while it's located in the logger directory.
+Now, sending commands is as easy as typing them and pressing enter.
+Valid commands:
+- PING (Returns: `OK PONG`.)
+- GET (Returns: all LDD values. Used by the script to create the csv. Also returns: `OK GET`.)
+- RESET (Resets LDD. Returns: `OK RESET` if successful, `ERR RESET` if failed.)
+- SETC <amps> (Expects: Float argument. Sets the current of the LDD. Returns: `OK SETC` if successful, `ERR SETC` if failed.)
+- SETT <degC> (Expects: Float argument. Sets the target temperature of the object. Returns: `OK SETT` if successful, `ERR SETC` if failed.)
+
 The data to be transmitted to the RC is located at: /home/rsp/drone_air_system/data_to_sdk/vitals.csv  
 
 
