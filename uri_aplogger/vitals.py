@@ -30,39 +30,31 @@ class VitalsExporter:
         # Define vital columns for each sensor (most important data only)
         self.vital_columns = {
             'imet': {
-                'columns': ['temp', 'pressure', 'rel_hum'],
-                'aliases': ['iMet_Temp_C', 'iMet_Pressure_hPa', 'iMet_Relative_Humidity']
+                'columns': ['temp'],
+                'aliases': ['T']
             },
             'pom': {
                 'columns': ['Ozone_ppb'],
-                'aliases': ['POM_Ozone_ppb']
-            },
-            'trisonica': {
-                'columns': ['U_Vector', 'V_Vector', 'W_Vector'],
-                'aliases': ['Tri_Wind_U', 'Tri_Wind_V', 'Tri_Wind_W']
+                'aliases': ['O3']
             },
             'spectro': {
-                'columns': ['peak_wavelength', 'max_intensity'],
-                'aliases': ['Spectro_Peak_nm', 'Spectro_MaxIntensity']
+                'columns': ['455.1949'],
+                'aliases': ['I']
             },
             'partector2pro': {
-                'columns': ['number_1_cm3', 'battery_voltage_V'],
-                'aliases': ['Partector_Particle_Count_#/cm3', 'Partector_Battery_Voltage_V']
+                'columns': ['?'],
+                'aliases': ['PM']
             },
             'miniaeth': {
                 'columns': ['blue_BCc'],
-                'aliases': ['Aeth_Blue_BlackCarbon']
-            },
-            'pops': {
-                'columns': ['b4', 'b8', 'b15'],
-                'aliases': ['POPS_Bin_4', 'POPS_Bin_8', 'POPS_Bin_15']
+                'aliases': ['MA']
             },
             'cavity': {
-                'columns': ['TEC_ActualOutputCurrent', 'TEC_ActualOutputVoltage', 'TEC_TargetObjectTemperature', 'LDD_ActualOutputCurrent', 'TEC_ObjectTemperature', 'temp_c', 'humidity_pct', 'pressure_mb', 'pump_rpm'],
-                'aliases': ['TEC_Output_Current', 'TEC_Output_Voltage', 'TEC_Target_Temperature', 'LDD_Output_Current', 'TEC_Object_Temperature', 'Inline_Temp', 'Inline_Relative_Humidity', 'Inline_Pressure_mbar', 'Pump_RPM']
+                'columns': ['TEC_ActualOutputCurrent', 'TEC_ObjectTemperature', 'temp_c', 'humidity_pct', 'pressure_mb', 'pump_rpm'],
+                'aliases': ['TECA', 'TECT', 'Ti', 'RHi', 'Pi', 'RPM']
             }
         }
-        
+
         # File tracking for each sensor
         self.sensor_files = {}
         self.sensor_positions = {}
@@ -103,7 +95,7 @@ class VitalsExporter:
             if sensor_config.get('enabled', True) and sensor_name in self.vital_columns:
                 # Determine file pattern based on sensor type
                 if sensor_name == 'spectro':
-                    pattern = sensor_config.get('output_file_pattern', 'output/spectro/spectro_data_*.csv')
+                    pattern = sensor_config.get('output_file_pattern', 'output/spectro/spectro_full_*.csv')
                 else:
                     pattern = f'output/{sensor_name}/{sensor_name}_data_*.csv'
                 

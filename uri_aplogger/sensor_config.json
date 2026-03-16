@@ -49,7 +49,7 @@
     },
     "spectro": {
       "type": "spectrometer",
-      "script": "spectro_hdf5.py",
+      "script": "spectro.py",
       "enabled": true,
       "restart_delay": 5,
       "startup_delay": 2,
@@ -66,15 +66,17 @@
         "vendor_id": "ffff",
         "model_id": "0005"
       },
-      "mode": 1,
+      "mode": 6,
       "baudrate": 115200,
       "timeout": 2,
-      "column_names": ["Timestamp", "time_since_start_s", "charger_diffusion_current_nA", "charger_high_voltage_V", "electrometer1_mV", "electrometer2_mV", "electrometer1_amplitude_mV", "electrometer2_amplitude_mV", "temperature_C", "relative_humidity_percent", "status", "precipitator_voltage_V", "battery_voltage_V", "flow_lpm", "LDSA_um2_cm3", "diameter_nm", "number_1_cm3", "orifice_pressure_Pa", "absolute_pressure_mbar"]
+    "column_names": ["Timestamp","time_since_start_s","number_cm3","diameter_nm","ldsa_um2_cm3","total_surface_um2_cm3","mass_ug_m3","gsd",
+    "charger_current_nA","charger_hv_V","precipitator_voltage_V","temperature_C","rh_percent","pressure_mbar","flow_lpm","battery_V","pump_current_mA","status","internal_value","solution_steps",
+    "bin1_dN_dlogD","bin2_dN_dlogD","bin3_dN_dlogD","bin4_dN_dlogD","bin5_dN_dlogD","bin6_dN_dlogD","bin7_dN_dlogD","bin8_dN_dlogD","em_amp1_mV","em_amp2_mV","em_amp3_mV","em_amp4_mV","em_amp5_mV"]    
     },
     "miniaeth": {
       "type": "MiniaethMA200",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
 
       "identifiers": { "vendor_id": "0403", "model_id": "6001" },
       "baudrate": 1000000,
@@ -87,7 +89,7 @@
     "pops": {
       "type": "POPS",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "startup_delay": 2,
       "restart_delay": 5,
 
@@ -107,7 +109,7 @@
     "ldd": {
       "type": "LDD",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "startup_delay": 2,
       "restart_delay": 5,
 
@@ -144,7 +146,7 @@
     "pump": {
       "type": "Pump",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "identifiers": { "vendor_id": "2341", "model_id": "0058", "serial_short": "C95C97095154513747202020FF192D24"},
       "baudrate": 115200,
       "timeout": 1,
@@ -156,7 +158,7 @@
     "cavity": {
       "type": "Cavity",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "startup_delay": 2,
       "restart_delay": 5,
 
