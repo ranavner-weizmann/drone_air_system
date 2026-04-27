@@ -36,7 +36,7 @@
     "trisonica": {
       "type": "TriSonica",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 2,
       "identifiers": {
@@ -50,7 +50,7 @@
     "spectro": {
       "type": "spectrometer",
       "script": "spectro.py",
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 2,
       "output_file_pattern": "output/spectro/spectro_summary_*.csv",
@@ -195,5 +195,12 @@
     "enabled": true,
     "startup_delay": 5
   },
+  "vitals": {
+    "enabled": true,
+    "script": "vitals.py",
+    "interval": 1.0,
+    "startup_delay": 12
+},
   "path": "/home/rsp/drone_air_system/uri_aplogger/"
+  
 }

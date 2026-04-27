@@ -22,6 +22,7 @@ class CompleteSensorManager:
         self.config_filename = config_file
         self.sensor_processes = {}
         self.merger_process = None
+        self.vitals_process = None
         self.running = False
         
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -164,7 +165,40 @@ class CompleteSensorManager:
         except Exception as e:
             self.logger.error(f"Failed to start merger from {absolute_script_path}: {e}")
             return None
-        
+
+    def start_vitals(self):
+        """Start the vitals exporter process"""
+        vitals_config = self.config.get('vitals', {})
+        if not vitals_config.get('enabled', True):
+            self.logger.info("Vitals exporter is disabled")
+            return None
+
+        script_path = vitals_config.get('script', 'vitals.py')
+        absolute_script_path = self.get_absolute_script_path(script_path)
+
+        if not os.path.exists(absolute_script_path):
+            self.logger.error(f"Vitals script not found: {absolute_script_path}")
+            return None
+
+        log_dir = self.base_path / "output" / "process_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_f = open(log_dir / "vitals.log", "a")
+
+        try:
+            interval = vitals_config.get('interval', 1.0)
+            process = subprocess.Popen(
+                [sys.executable, absolute_script_path, '--interval', str(interval)],
+                stdout=log_f,
+                stderr=log_f,
+                text=True,
+                cwd=self.base_path
+            )
+            self.logger.info(f"Started vitals exporter (PID: {process.pid}) from {absolute_script_path} with interval {interval}s")
+            return process
+        except Exception as e:
+            self.logger.error(f"Failed to start vitals exporter from {absolute_script_path}: {e}")
+            return None
+
     def start_all(self):
         """Start all enabled sensors and merger"""
         self.logger.info(f"Starting all sensor processes from directory: {self.base_path}")
@@ -183,9 +217,14 @@ class CompleteSensorManager:
         merger_delay = self.config.get('merger', {}).get('startup_delay', 10)
         self.logger.info(f"Waiting {merger_delay}s before starting merger...")
         time.sleep(merger_delay)
-        
         self.merger_process = self.start_merger()
-        
+
+        # Start vitals after merger so the CSV is ready
+        vitals_delay = self.config.get('vitals', {}).get('startup_delay', 12)
+        self.logger.info(f"Waiting {vitals_delay}s before starting vitals exporter...")
+        time.sleep(vitals_delay)
+        self.vitals_process = self.start_vitals()
+
         self.running = True
         self.logger.info("All processes started")
 
@@ -193,8 +232,18 @@ class CompleteSensorManager:
         """Stop all sensor processes and merger"""
         self.logger.info("Stopping all processes...")
         self.running = False
+
+        # Stop vitals first
+        if self.vitals_process and self.vitals_process.poll() is None:
+            self.logger.info("Stopping vitals exporter...")
+            self.vitals_process.terminate()
+            try:
+                self.vitals_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.vitals_process.kill()
+            self.logger.info("Vitals exporter stopped")
         
-        # Stop merger first
+        # Stop merger
         if self.merger_process and self.merger_process.poll() is None:
             self.logger.info("Stopping merger process...")
             self.merger_process.terminate()
@@ -238,13 +287,25 @@ class CompleteSensorManager:
             if new_merger:
                 self.merger_process = new_merger
 
+        # Monitor vitals
+        if (self.vitals_process and
+            self.vitals_process.poll() is not None and
+            self.config.get('vitals', {}).get('enabled', True)):
+
+            exit_code = self.vitals_process.returncode
+            self.logger.warning(f"Vitals exporter died (exit code: {exit_code}), restarting...")
+            new_vitals = self.start_vitals()
+            if new_vitals:
+                self.vitals_process = new_vitals
+
     def get_status(self):
         """Get current status of all processes"""
         status = {
             'timestamp': datetime.now().isoformat(),
             'base_directory': str(self.base_path),
             'sensors': {},
-            'merger': None
+            'merger': None,
+            'vitals': None
         }
         
         for name, process in self.sensor_processes.items():
@@ -261,6 +322,14 @@ class CompleteSensorManager:
                 'pid': self.merger_process.pid,
                 'exit_code': self.merger_process.returncode,
                 'script': self.config.get('merger', {}).get('script', 'real_time_merger.py')
+            }
+
+        if self.vitals_process:
+            status['vitals'] = {
+                'running': self.vitals_process.poll() is None,
+                'pid': self.vitals_process.pid,
+                'exit_code': self.vitals_process.returncode,
+                'script': self.config.get('vitals', {}).get('script', 'vitals.py')
             }
             
         return status
@@ -298,6 +367,10 @@ class CompleteSensorManager:
                     if status['merger']:
                         state = "RUNNING" if status['merger']['running'] else "STOPPED"
                         self.logger.info(f"  Merger: {state} (Script: {status['merger'].get('script', 'N/A')})")
+
+                    if status['vitals']:
+                        state = "RUNNING" if status['vitals']['running'] else "STOPPED"
+                        self.logger.info(f"  Vitals: {state} (Script: {status['vitals'].get('script', 'N/A')})")
                     
                     self.logger.info("=====================")
                     last_status_report = time.time()
