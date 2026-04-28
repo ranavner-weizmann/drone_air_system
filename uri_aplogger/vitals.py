@@ -310,6 +310,7 @@ class VitalsExporter:
         """Run the vitals exporter"""
         self.logger.info("Starting vitals data exporter")
         self.logger.info(f"Output file: {self.vitals_file}")
+        self.logger.info(f"Output file: {self.vitals_live}")
         self.logger.info(f"Output interval: {self.output_interval}s")
         self.logger.info("Tracking vital parameters:")
         
