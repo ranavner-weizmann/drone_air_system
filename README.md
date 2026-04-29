@@ -58,6 +58,13 @@ As long as everything is functional, the only file you need to run is `runall.py
 For individual debugging, as stated before, run `sensor_runner.py` and pass the sensor name as an attribute.
 
 ### Special case:
+
+Ran:  
+The Partector has some problems; It does not recieve commands very well, therefore it might need some intense care when not working.  
+what I found out is that if it does not send data, you need to disconnect it and shut it off, then turn it on, and send the command: echo -e "X0006!" > /dev/ttyACM0. 
+you might need to send it many times until it starts sending data.   
+
+Uri:  
 The Sensor allows for sending commands in real time.
 To do that, first run `cat > output/ldd/cmd.fifo` in the terminal, while it's located in the logger directory.
 Now, sending commands is as easy as typing them and pressing enter.
