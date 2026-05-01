@@ -297,26 +297,23 @@ These are the most obvious source-level issues visible from the current code:
 2. **`revised.py` remote path appears to point at a different project tree than `sensor_config.json`.**
    - That suggests a stale deployment path or copied dashboard config.
 
-3. **`vitals.py` writes `../data_to_sdk/vitals.csv` but creates `./data_to_sdk/`.**
-   - Those are different directories.
-
-4. **`CavitySensor` builds `Path(..., exist_ok=True)`, which is invalid.**
+3. **`CavitySensor` builds `Path(..., exist_ok=True)`, which is invalid.**
    - `Path()` does not accept `exist_ok`.
    - This should be fixed before enabling the cavity sensor.
 
-5. **Top-level logging verbosity uses `4`, but `GenericSensor` only defines mappings for `0..3`.**
+4. **Top-level logging verbosity uses `4`, but `GenericSensor` only defines mappings for `0..3`.**
    - It falls back to `INFO`, so verbosity `4` does not actually mean “more verbose”.
 
-6. **The pump output column name `target_speed` does not match the value being written.**
+5. **The pump output column name `target_speed` does not match the value being written.**
    - The code writes power percentage, not an RPM speed target.
 
-7. **`sensor_runner.py` prints a hard-coded “Available sensors” list that is incomplete/outdated.**
+6. **`sensor_runner.py` prints a hard-coded “Available sensors” list that is incomplete/outdated.**
    - The actual allowed names come from `sensor_config.json`.
 
-8. **The old README mentions `spectro_hdf5.py` and `read_hdf5.py`, but the current uploaded source uses `spectro.py`.**
+7. **The old README mentions `spectro_hdf5.py` and `read_hdf5.py`, but the current uploaded source uses `spectro.py`.**
    - The documentation should describe the files that actually exist in the active codebase.
 
-9. **Partector 2 Pro issues reading bins, !X0006 causes failure.**
+8. **Partector 2 Pro issues reading bins, !X0006 causes failure.**
 ---
 
 ## Practical first checks after any change
