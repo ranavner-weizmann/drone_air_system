@@ -109,7 +109,7 @@
     "ldd": {
       "type": "LDD",
       "script": "sensor_runner.py",
-      "enabled": false,
+      "enabled": true,
       "startup_delay": 2,
       "restart_delay": 5,
 
@@ -146,7 +146,7 @@
     "pump": {
       "type": "Pump",
       "script": "sensor_runner.py",
-      "enabled": false,
+      "enabled": true,
       "identifiers": { "vendor_id": "2341", "model_id": "0058", "serial_short": "C95C97095154513747202020FF192D24"},
       "baudrate": 115200,
       "timeout": 1,
@@ -158,7 +158,7 @@
     "cavity": {
       "type": "Cavity",
       "script": "sensor_runner.py",
-      "enabled": false,
+      "enabled": true,
       "startup_delay": 2,
       "restart_delay": 5,
 

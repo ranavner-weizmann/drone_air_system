@@ -42,8 +42,8 @@ class VitalsExporter:
                 'aliases': ['I']
             },
             'partector2pro': {
-                'columns': ['?'],
-                'aliases': ['PM']
+                'columns': ['mass_ug_m3'],
+                'aliases': ['MC']
             },
             'miniaeth': {
                 'columns': ['blue_BCc'],
@@ -62,8 +62,8 @@ class VitalsExporter:
         
         # Set up vitals output file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.vitals_file = f'output/vitals_summary_{timestamp}.csv'
-        self.vitals_live = f'../data_to_sdk/vitals.csv'
+        self.vitals_file = 'output/vitals_summary.csv'  # Fixed filename, append to existing file
+        self.vitals_live = '../data_to_sdk/vitals.csv'
         
         self.setup_logging()
         self.initialize_sensor_tracking()

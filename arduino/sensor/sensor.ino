@@ -388,7 +388,7 @@ void loop() {
     float pstage_t   = readFloat(1301, INST_MON, okL);
 
     // ---------- Print one merged CSV row ----------
-
+    Serial.print(now);   Serial.print(',');
     Serial.print(errNo);   Serial.print(',');
     Serial.print(errInst); Serial.print(',');
     Serial.print(errPar);  Serial.print(',');
