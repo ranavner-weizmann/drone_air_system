@@ -90,7 +90,7 @@ const int PULSES_PER_REV = 6;
 
 volatile uint32_t fgPulses = 0;
 
-int currentSpeedPercent = 40;
+int currentSpeedPercent = 28; //used to be 40%, the flow was 2.8L/min (with cavity) 28 is 1.96L/min
 float lastTemperature = -40.0;
 float lastHumidity    = 0.0;
 

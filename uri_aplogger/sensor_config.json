@@ -50,7 +50,7 @@
     "spectro": {
       "type": "spectrometer",
       "script": "spectro.py",
-      "enabled": false,
+      "enabled": true,
       "restart_delay": 5,
       "startup_delay": 2,
       "output_file_pattern": "output/spectro/spectro_summary_*.csv",

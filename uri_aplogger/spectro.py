@@ -71,7 +71,7 @@ class CSVSpectrometer:
                 return False
 
             self.spec = sb.Spectrometer(devices[0])
-            self.spec.integration_time_micros(100000)  # 100ms
+            self.spec.integration_time_micros(250000)  # 250ms
 
             # Get wavelengths once (they're fixed for the device)
             self.wavelengths = self.spec.wavelengths()

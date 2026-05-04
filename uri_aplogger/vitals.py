@@ -38,7 +38,7 @@ class VitalsExporter:
                 'aliases': ['O3']
             },
             'spectro': {
-                'columns': ['455.1949'],
+                'columns': ['max_intensity'],
                 'aliases': ['I']
             },
             'partector2pro': {
