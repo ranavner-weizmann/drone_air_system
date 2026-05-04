@@ -14,6 +14,8 @@ from pathlib import Path
 import threading
 import argparse
 
+from run_paths import get_run_dir, get_csv_dir, get_log_dir
+
 class VitalsExporter:
     def __init__(self, config_file='sensor_config.json', output_interval=1.0):
         """
@@ -59,12 +61,17 @@ class VitalsExporter:
         self.sensor_files = {}
         self.sensor_positions = {}
         self.latest_data = {}
-        
-        # Set up vitals output file
+
+        # Resolve per-run folders
+        self.run_dir = get_run_dir()
+        self.csv_dir = get_csv_dir()
+        self.log_dir = get_log_dir()
+
+        # Set up vitals output file (lives at the run-folder root)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.vitals_file = f'output/vitals_summary_{timestamp}.csv'
+        self.vitals_file = str(self.run_dir / f'vitals_summary_{timestamp}.csv')
         self.vitals_live = '../data_to_sdk/vitals.csv'
-        
+
         self.setup_logging()
         self.initialize_sensor_tracking()
         
@@ -75,7 +82,7 @@ class VitalsExporter:
             format='%(asctime)s - Vitals - %(levelname)s - %(message)s',
             handlers=[
                 logging.StreamHandler(),
-                logging.FileHandler('vitals_exporter.log')
+                logging.FileHandler(str(self.log_dir / 'vitals_exporter.log'))
             ]
         )
         self.logger = logging.getLogger('VitalsExporter')
@@ -93,12 +100,14 @@ class VitalsExporter:
         """Initialize tracking for all enabled sensors"""
         for sensor_name, sensor_config in self.config['sensors'].items():
             if sensor_config.get('enabled', True) and sensor_name in self.vital_columns:
-                # Determine file pattern based on sensor type
+                # All sensor csvs now live in <run_dir>/csv/. Spectro vitals
+                # come from the full-spectra file; others use the standard form.
                 if sensor_name == 'spectro':
-                    pattern = sensor_config.get('output_file_pattern', 'output/spectro/spectro_full_*.csv')
+                    raw_pattern = sensor_config.get('output_file_pattern', 'spectro_full_*.csv')
+                    pattern = str(self.csv_dir / os.path.basename(raw_pattern))
                 else:
-                    pattern = f'output/{sensor_name}/{sensor_name}_data_*.csv'
-                
+                    pattern = str(self.csv_dir / f'{sensor_name}_data_*.csv')
+
                 self.sensor_files[sensor_name] = pattern
                 self.latest_data[sensor_name] = {}
                 self.logger.info(f"Tracking vitals from {sensor_name} with pattern: {pattern}")
@@ -261,7 +270,7 @@ class VitalsExporter:
     
     def write_vitals_data(self):
         """Write vitals data to CSV files"""
-        Path('output').mkdir(exist_ok=True)
+        # run dir already exists (created by run_paths)
         Path('../data_to_sdk').mkdir(exist_ok=True)
 
         headers = self.get_vitals_headers()

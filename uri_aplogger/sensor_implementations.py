@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 import time
 import re
 
+from run_paths import get_csv_dir, get_run_dir
+
 class iMetSensor(GenericSensor):
     """iMet sensor implementation"""
     
@@ -397,10 +399,12 @@ class POPSSensor(GenericSensor):
         """Own run loop (UDP needs its own flow, so we don't call GenericSensor.run)."""
         self.logger.info(f"Starting POPS UDP listener: {self.udp_ip}:{self.udp_port}")
 
-        # Ensure output dir / file exist, then append rows
-        Path(f'output/{self.name}').mkdir(parents=True, exist_ok=True)
+        # Ensure output file path is set (csv dir already created by run_paths)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.output_file = self.config.get('output_file', f'output/{self.name}/{self.name}_data_{timestamp}.csv')
+        self.output_file = self.config.get(
+            'output_file',
+            str(get_csv_dir() / f'{self.name}_data_{timestamp}.csv')
+        )
 
         try:
             # Initialize CSV with headers if needed
@@ -493,7 +497,7 @@ class LDDSensor(GenericSensor):
         # Track whether we already did startup commands for the current connection
         self._did_startup_for_connection = False
 
-        self.cmd_fifo = Path(f"output/{self.name}/cmd.fifo")
+        self.cmd_fifo = get_run_dir() / f"{self.name}_cmd.fifo"
         self._fifo_fd = None
         self._fifo_buf = ""
 
@@ -656,7 +660,9 @@ class PumpSensor(GenericSensor):
         self.power_setpoint = float(config.get("initial_power", 40.0))
 
         # FIFO like LDD
-        self.power_fifo = Path(config.get("power_fifo", f"output/{self.name}/power.fifo"))
+        self.power_fifo = Path(
+            config.get("power_fifo", str(get_run_dir() / f"{self.name}_power.fifo"))
+        )
         self._fifo_fd = None
         self._fifo_buf = ""
 
@@ -782,12 +788,13 @@ class CavitySensor(GenericSensor):
       - header: "ms,ErrorNumber,..."
       - rows:   <ms>,<ErrorNumber>,...,<PowerstageTemperature>,<pump_rpm>,<pressure_mb>,<temp_c>,<humidity_pct>,<power_pct>,<pressure_status>
 
-    We also support a command FIFO for runtime control:
-      mkfifo output/cavity/cmd.fifo
-      echo "SETC 1.23"  > output/cavity/cmd.fifo
-      echo "SETT 35.0"  > output/cavity/cmd.fifo
-      echo "SETPWR 40"  > output/cavity/cmd.fifo
-      echo "RESET"      > output/cavity/cmd.fifo
+    We also support a command FIFO for runtime control. The FIFO lives in the
+    current run folder (output/<run_timestamp>/cavity_cmd.fifo):
+      mkfifo "$RUN_DIR/cavity_cmd.fifo"
+      echo "SETC 1.23"  > "$RUN_DIR/cavity_cmd.fifo"
+      echo "SETT 35.0"  > "$RUN_DIR/cavity_cmd.fifo"
+      echo "SETPWR 40"  > "$RUN_DIR/cavity_cmd.fifo"
+      echo "RESET"      > "$RUN_DIR/cavity_cmd.fifo"
     """
 
     def __init__(self, name, config):
@@ -808,8 +815,9 @@ class CavitySensor(GenericSensor):
         self._did_startup_for_connection = False
 
         # Single command FIFO for all commands
-        from pathlib import Path
-        self.cmd_fifo = Path(config.get("cmd_fifo", f"output/{self.name}/cmd.fifo"), exist_ok=True)
+        self.cmd_fifo = Path(
+            config.get("cmd_fifo", str(get_run_dir() / f"{self.name}_cmd.fifo"))
+        )
         self._fifo_fd = None
         self._fifo_buf = ""
 

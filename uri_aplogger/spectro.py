@@ -13,6 +13,8 @@ import signal
 from pathlib import Path
 import numpy as np
 
+from run_paths import get_csv_dir, get_log_dir
+
 
 class CSVSpectrometer:
     def __init__(self, summary_interval=60):
@@ -27,15 +29,15 @@ class CSVSpectrometer:
         self.reconnect_delay = 2
         self.summary_interval = summary_interval
 
-        # Ensure output directory exists
-        Path("output/spectro").mkdir(parents=True, exist_ok=True)
+        # Resolve per-run output dirs (created by run_paths)
+        csv_dir = get_csv_dir()
 
         # Create timestamp for all output files
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # Output files
-        self.summary_csv = f"output/spectro/spectro_summary_{self.timestamp}.csv"
-        self.full_csv = f"output/spectro/spectro_full_{self.timestamp}.csv"
+        self.summary_csv = str(csv_dir / f"spectro_summary_{self.timestamp}.csv")
+        self.full_csv = str(csv_dir / f"spectro_full_{self.timestamp}.csv")
 
         # Data buffers
         self.wavelengths = None
@@ -48,12 +50,13 @@ class CSVSpectrometer:
         signal.signal(signal.SIGINT, self.signal_handler)
 
     def setup_logging(self):
+        log_path = get_log_dir() / f"spectro_log_{self.timestamp}.log"
         logging.basicConfig(
             format="%(asctime)s Spectrometer: %(message)s",
             level=logging.INFO,
             handlers=[
                 logging.StreamHandler(),
-                logging.FileHandler(f"output/spectro/spectro_log_{self.timestamp}.log"),
+                logging.FileHandler(str(log_path)),
             ],
         )
         self.logger = logging.getLogger()

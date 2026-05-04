@@ -14,6 +14,8 @@ from pathlib import Path
 import threading
 from collections import defaultdict
 
+from run_paths import get_run_dir, get_csv_dir, get_log_dir
+
 class RealTimeMerger:
     def __init__(self, config_file='sensor_config.json', output_interval=1.0):
         """
@@ -26,7 +28,7 @@ class RealTimeMerger:
         self.config = self.load_config(config_file)
         self.output_interval = output_interval
         self.running = True
-        
+
         # File tracking for each sensor
         self.sensor_files = {}
         self.sensor_handles = {}
@@ -34,11 +36,16 @@ class RealTimeMerger:
         self.latest_data = {}
         self.last_read_times = {}
         self.has_new_data = {}
-        
-        # Set up merged output
+
+        # Resolve per-run folders
+        self.run_dir = get_run_dir()
+        self.csv_dir = get_csv_dir()
+        self.log_dir = get_log_dir()
+
+        # Merged file lives at the run-folder root
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.merged_file = f'output/merged_data_{timestamp}.csv'
-        
+        self.merged_file = str(self.run_dir / f'merged_data_{timestamp}.csv')
+
         self.setup_logging()
         self.initialize_sensor_tracking()
         
@@ -49,7 +56,7 @@ class RealTimeMerger:
             format='%(asctime)s - Merger - %(levelname)s - %(message)s',
             handlers=[
                 logging.StreamHandler(),
-                logging.FileHandler('merger.log')
+                logging.FileHandler(str(self.log_dir / 'merger.log'))
             ]
         )
         self.logger = logging.getLogger('RealTimeMerger')
@@ -67,12 +74,14 @@ class RealTimeMerger:
         """Initialize tracking for all enabled sensors"""
         for sensor_name, sensor_config in self.config['sensors'].items():
             if sensor_config.get('enabled', True):
-                # Determine file pattern based on sensor type
+                # All sensor csvs now live in <run_dir>/csv/. Spectro has a
+                # custom basename pattern; others follow the standard form.
                 if sensor_name == 'spectro':
-                    pattern = sensor_config.get('output_file_pattern', 'output/spectro/spectro_data_*.csv')
+                    raw_pattern = sensor_config.get('output_file_pattern', 'spectro_summary_*.csv')
+                    pattern = str(self.csv_dir / os.path.basename(raw_pattern))
                 else:
-                    pattern = f'output/{sensor_name}/{sensor_name}_data_*.csv'
-                
+                    pattern = str(self.csv_dir / f'{sensor_name}_data_*.csv')
+
                 self.sensor_files[sensor_name] = pattern
                 self.latest_data[sensor_name] = None
                 self.has_new_data[sensor_name] = False  # Initialize as False
@@ -216,9 +225,8 @@ class RealTimeMerger:
     
     def write_merged_data(self):
         """Write merged data to CSV file"""
-        # Ensure output directory exists
-        Path('output').mkdir(exist_ok=True)
-        
+        # run dir already exists (created by run_paths)
+
         # Initialize CSV file if it doesn't exist
         if not os.path.exists(self.merged_file):
             with open(self.merged_file, 'w', newline='') as f:

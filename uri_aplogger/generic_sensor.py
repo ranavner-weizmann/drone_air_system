@@ -12,6 +12,8 @@ from datetime import datetime
 import logging
 from pathlib import Path
 
+from run_paths import get_csv_dir, get_log_dir
+
 try:
     import pyudev
 except ImportError:
@@ -34,14 +36,15 @@ class GenericSensor:
         self.baudrate = config.get('baudrate', 9600)
         self.timeout = config.get('timeout', 2)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.output_file = config.get('output_file', f'output/{name.lower()}/{name.lower()}_data_{timestamp}.csv')
+        csv_dir = get_csv_dir()
+        self.output_file = config.get(
+            'output_file',
+            str(csv_dir / f'{name.lower()}_data_{timestamp}.csv')
+        )
         self.setup_logging()
         print(f"{self.logger.name} logger initialized.")
         print(f"{self.logger.info}")
         signal.signal(signal.SIGINT, self.signal_handler)
-        
-        # Create output directory
-        Path(f'output/{self.name}').mkdir(parents=True, exist_ok=True)
 
     def setup_logging(self):
         """Setup logging based on config verbosity."""
@@ -74,9 +77,6 @@ class GenericSensor:
 
         formatter = logging.Formatter(f"%(asctime)s {self.name}: %(message)s")
 
-        # Ensure per-sensor output directory exists (important!)
-        Path(f"output/{self.name}").mkdir(parents=True, exist_ok=True)
-
         if to_console:
             sh = logging.StreamHandler()
             sh.setLevel(level)
@@ -85,7 +85,8 @@ class GenericSensor:
 
         if to_file:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            fh = logging.FileHandler(f"output/{self.name}/{self.name}_log_{timestamp}.log")
+            log_dir = get_log_dir()
+            fh = logging.FileHandler(str(log_dir / f"{self.name}_log_{timestamp}.log"))
             fh.setLevel(level)
             fh.setFormatter(formatter)
             self.logger.addHandler(fh)

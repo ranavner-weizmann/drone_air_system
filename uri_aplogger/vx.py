@@ -4,17 +4,20 @@ import os
 import glob
 from datetime import datetime
 
-def check_sensor(sensor_name, timeout=5):
+from run_paths import get_run_dir, get_csv_dir
+
+
+def check_sensor(sensor_name, csv_dir, timeout=5):
     """Check if sensor is alive based on file modification time."""
-    pattern = f'output/{sensor_name}/{sensor_name}_data_*.csv'
+    pattern = str(csv_dir / f'{sensor_name}_data_*.csv')
     files = glob.glob(pattern)
-    
+
     if not files:
         return 'X'
-    
+
     latest_file = max(files, key=os.path.getmtime)
     file_age = time.time() - os.path.getmtime(latest_file)
-    
+
     return 'V' if file_age < timeout else 'X'
 
 def main():
@@ -26,12 +29,13 @@ def main():
         'spectro': 6,
         'partector2pro': 8
     }
-    
-    # Create output file
+
+    run_dir = get_run_dir()
+    csv_dir = get_csv_dir()
+
+    # Status summary lives alongside merged_data / vitals_summary at run root
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = f'output/minimal_status_{timestamp}.csv'
-    
-    os.makedirs('output', exist_ok=True)
+    output_file = str(run_dir / f'minimal_status_{timestamp}.csv')
     
     # Write header
     with open(output_file, 'w', newline='') as f:
@@ -47,7 +51,7 @@ def main():
             # Check each sensor
             status_row = [current_time]
             for sensor, timeout in sensors.items():
-                status = check_sensor(sensor, timeout)
+                status = check_sensor(sensor, csv_dir, timeout)
                 status_row.append(status)
             
             # Write to file

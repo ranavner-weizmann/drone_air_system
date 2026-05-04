@@ -24,24 +24,35 @@ class CompleteSensorManager:
         self.merger_process = None
         self.vitals_process = None
         self.running = False
-        
+
         signal.signal(signal.SIGINT, self.signal_handler)
-        
+
         # Load config FIRST to get the path
         self.config = self.load_initial_config()
-        
+
         # Now change to the base directory
         self.base_path = Path(self.config.get('path', '.')).resolve()
         os.chdir(self.base_path)
         print(f"Working directory changed to: {self.base_path}")
-        
+
+        # Establish the run folder for this invocation. All sensors, the
+        # merger and vitals share it via the RUN_DIR env var.
+        run_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.run_dir = (self.base_path / 'output' / run_timestamp).resolve()
+        self.csv_dir = self.run_dir / 'csv'
+        self.log_dir = self.run_dir / 'log'
+        self.csv_dir.mkdir(parents=True, exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        os.environ['RUN_DIR'] = str(self.run_dir)
+        print(f"Run folder: {self.run_dir}")
+
         # Now that we're in the right directory, setup logging
         self.setup_logging()
 
     def setup_logging(self):
         """Setup logging with absolute paths"""
-        # Use base_path for log file
-        log_file = self.base_path / 'sensor_controller.log'
+        # Controller log lives inside this run's log folder
+        log_file = self.log_dir / 'sensor_controller.log'
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -109,9 +120,7 @@ class CompleteSensorManager:
             args = [sys.executable, absolute_script_path, name]
         else:
             args = [sys.executable, absolute_script_path]
-        log_dir = self.base_path / "output" / "process_logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / f"{name}.log"
+        log_path = self.log_dir / f"{name}.log"
         log_f = open(log_path, "a")
 
         try:
@@ -120,7 +129,8 @@ class CompleteSensorManager:
                 stdout=log_f,
                 stderr=log_f,
                 text=True,
-                cwd=self.base_path
+                cwd=self.base_path,
+                env={**os.environ, 'RUN_DIR': str(self.run_dir)}
             )
             self.logger.info(f"Started {name} (PID: {process.pid}) from {absolute_script_path}")
             return process
@@ -144,21 +154,20 @@ class CompleteSensorManager:
             self.logger.error(f"Merger script not found: {absolute_script_path}")
             return None
         
-        log_dir = self.base_path / "output" / "process_logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / "merger.log"
+        log_path = self.log_dir / "merger.log"
         log_f = open(log_path, "a")
 
         try:
             # Get interval from config or use default
             interval = merger_config.get('interval', 1.0)
-            
+
             process = subprocess.Popen(
                 [sys.executable, absolute_script_path, '--interval', str(interval)],
                 stdout=log_f,
                 stderr=log_f,
                 text=True,
-                cwd=self.base_path  # Run from base directory
+                cwd=self.base_path,  # Run from base directory
+                env={**os.environ, 'RUN_DIR': str(self.run_dir)}
             )
             self.logger.info(f"Started real-time merger (PID: {process.pid}) from {absolute_script_path} with interval {interval}s")
             return process
@@ -180,9 +189,7 @@ class CompleteSensorManager:
             self.logger.error(f"Vitals script not found: {absolute_script_path}")
             return None
 
-        log_dir = self.base_path / "output" / "process_logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_f = open(log_dir / "vitals.log", "a")
+        log_f = open(self.log_dir / "vitals.log", "a")
 
         try:
             interval = vitals_config.get('interval', 1.0)
@@ -191,7 +198,8 @@ class CompleteSensorManager:
                 stdout=log_f,
                 stderr=log_f,
                 text=True,
-                cwd=self.base_path
+                cwd=self.base_path,
+                env={**os.environ, 'RUN_DIR': str(self.run_dir)}
             )
             self.logger.info(f"Started vitals exporter (PID: {process.pid}) from {absolute_script_path} with interval {interval}s")
             return process
