@@ -8,6 +8,7 @@ import time
 import json
 import glob
 import os
+import signal
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -342,16 +343,30 @@ def main():
     args = parser.parse_args()
     
     exporter = VitalsExporter(config_file=args.config, output_interval=args.interval)
-    
+
     if args.output:
         exporter.vitals_file = args.output
-    
+
+    # Translate SIGTERM (sent by runall.py's terminate()) into KeyboardInterrupt
+    # so the finally block below can clean up the live CSV.
+    def _sigterm_handler(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
     try:
         exporter.run()
     except KeyboardInterrupt:
         exporter.logger.info("Shutting down...")
     except Exception as e:
         exporter.logger.error(f"Fatal error: {e}")
+    finally:
+        try:
+            os.remove(exporter.vitals_live)
+            exporter.logger.info(f"Removed {exporter.vitals_live}")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            exporter.logger.error(f"Error removing {exporter.vitals_live}: {e}")
 
 if __name__ == "__main__":
     main()
