@@ -37,7 +37,9 @@ ssh-add ~/.ssh/id_ed25519
 ### First Setup  
 1. Inside the drone_air_system folder, there is a script called 'setup_dji_sdk_demo.sh' - run it with sudo  
 NEED TO ADD CMAKE INSTALLATION 
-2. After running the script, the whole system should be transparent; it should start automatically when the Pi is connected to power.  (Currently the SDK runs automatically but the runall.py does not).  
+2. Create a venv with the attached requirements.
+3. Create a udev rule that will allow access to the spectrometer.
+4. After running the script, the whole system should be transparent; it should start automatically when the Pi is connected to power.  (Currently the SDK runs automatically but the runall.py does not).  
  
 ### Explanations  
 
