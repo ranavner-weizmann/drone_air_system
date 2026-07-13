@@ -13,7 +13,8 @@
       "startup_delay": 2,
       "identifiers": {
         "vendor_id": "0403",
-        "model_id": "6015"
+        "model_id": "6015",
+        "serial_short": "D30D1A75"
       },
       "baudrate": 57600,
       "timeout": 2,
@@ -59,7 +60,7 @@
     "partector2pro": {
       "type": "Partector2Pro",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 3,
       "identifiers": {
@@ -107,30 +108,25 @@
     },
 
     "ldd": {
-      "type": "LDD",
+      "type": "LDD_USB",
       "script": "sensor_runner.py",
-      "enabled": false,
+      "enabled": true,
       "startup_delay": 2,
       "restart_delay": 5,
 
       "identifiers": {
-        "vendor_id": "2341",
-        "model_id": "0058",
-        "serial_short": "38DE49665154513747202020FF191C23"
+        "vendor_id": "0403",
+        "model_id": "6015",
+        "serial_short": "DQ01F1MH"
       },
-    
 
       "baudrate": 57600,
       "timeout": 1,
-
-      "send_ping": true,
-      "setc": 1.40,
-      "sett": 35.0,
-      "do_reset": false,
+      "poll_interval": 1.0,
 
       "column_names": [
         "Timestamp",
-        "ErrorNumber","ErrorInstance","ErrorParameter","ErrorText",
+        "ErrorNumber","ErrorInstance","ErrorParameter",
         "LDD_ActualOutputCurrent","LDD_ActualOutputVoltage","LDD_ActualOutputCurrentRaw",
         "LDD_ActualAnodeVoltage","LDD_ActualCathodeVoltage",
         "LDD_NominalOutputCurrentRamp",
@@ -139,8 +135,7 @@
         "TEC_ObjectTemperature","TEC_SinkTemperature",
         "AnalogVoltageInputRawADC","AnalogVoltageInput",
         "LaserPower","OutputLevel",
-        "DriverInputVoltage","Internal8V","Internal5V","Internal3V3","InternalMinus3V3",
-        "DeviceTemperature","PowerstageTemperature"
+        "DriverInputVoltage","Internal8V","Internal5V"
       ]
     },
     "pump": {

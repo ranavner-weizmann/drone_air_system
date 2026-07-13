@@ -964,7 +964,206 @@ class CavitySensor(GenericSensor):
             self.logger.error(f"Cavity parse error: {e}, data: {data!r}")
             return None
 
-    
+
+import struct
+
+class LDDUSBSensor(GenericSensor):
+    """
+    Meerstetter LDD read directly over its USB (MeCom) port — no Arduino.
+
+    The LDD's FT230X USB link always runs at 57600 baud regardless of the
+    RS485 setting. Once per poll_interval this sensor queries the same
+    monitor parameters the cavity Arduino firmware reads over RS485
+    (see arduino/sensor/sensor.ino) and writes one CSV row.
+
+    Read-only by default. Optional startup setpoints, written once after
+    each (re)connection — omit them from the config to leave the LDD alone:
+      "setc": <amps>  -> parameter 2102 (laser current setpoint)
+      "sett": <degC>  -> parameter 4000 (TEC target object temperature)
+
+    Parameters 1203/1204/1300/1301 (3V3 rails, device/powerstage temp) are
+    not available on the 8157-LDD-AN-LIN firmware (MeCom error +05), so they
+    are not queried.
+    """
+
+    # (par_id, kind) per column, same order as column_names[1:]
+    # kind: 'i' = INT32, 'f' = FLOAT32, 'fi' = FLOAT32 reported as int
+    PARAMS = [
+        (105, 'i'),    # ErrorNumber
+        (106, 'i'),    # ErrorInstance
+        (107, 'i'),    # ErrorParameter
+        (1100, 'f'),   # LDD_ActualOutputCurrent
+        (1101, 'f'),   # LDD_ActualOutputVoltage
+        (1102, 'fi'),  # LDD_ActualOutputCurrentRaw
+        (1104, 'f'),   # LDD_ActualAnodeVoltage
+        (1105, 'f'),   # LDD_ActualCathodeVoltage
+        (1402, 'f'),   # LDD_NominalOutputCurrentRamp
+        (1010, 'f'),   # TEC_TargetObjectTemperature
+        (1011, 'f'),   # TEC_NominalObjectTemperatureRamp
+        (1012, 'f'),   # TEC_ThermalPowerModelCurrent
+        (1020, 'f'),   # TEC_ActualOutputCurrent
+        (1021, 'f'),   # TEC_ActualOutputVoltage
+        (1000, 'f'),   # TEC_ObjectTemperature
+        (1001, 'f'),   # TEC_SinkTemperature
+        (1502, 'fi'),  # AnalogVoltageInputRawADC
+        (1500, 'f'),   # AnalogVoltageInput
+        (1600, 'f'),   # LaserPower
+        (1601, 'f'),   # OutputLevel
+        (1200, 'f'),   # DriverInputVoltage
+        (1201, 'f'),   # Internal8V
+        (1202, 'f'),   # Internal5V
+    ]
+
+    def __init__(self, name, config):
+        super().__init__(name, config)
+        self.baudrate = int(config.get("baudrate", 57600))
+        self.timeout = float(config.get("timeout", 1))
+        self.poll_interval = float(config.get("poll_interval", 1.0))
+        self.mecom_address = int(config.get("mecom_address", 0))
+
+        self.setc = config.get("setc")  # float amps or None
+        self.sett = config.get("sett")  # float degC or None
+
+        self._seq = int(time.time()) & 0x7FFF
+        self._last_poll = 0.0
+        self._did_startup_for_connection = False
+
+    # --- MeCom framing ---
+
+    @staticmethod
+    def _crc16(data: bytes) -> int:
+        n = 0
+        for b in data:
+            n ^= b << 8
+            for _ in range(8):
+                n = ((n << 1) ^ 0x1021) if n & 0x8000 else (n << 1)
+            n &= 0xFFFF
+        return n
+
+    def _transact(self, payload: str, timeout=0.5):
+        """Send one MeCom frame, return reply payload string or None."""
+        self._seq = (self._seq + 1) & 0xFFFF
+        body = f"#{self.mecom_address:02X}{self._seq:04X}{payload}".encode("ascii")
+        sent_crc = self._crc16(body)
+        self.serial_conn.reset_input_buffer()
+        self.serial_conn.write(body + f"{sent_crc:04X}".encode("ascii") + b"\r")
+        self.serial_conn.flush()
+
+        buf = b""
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            c = self.serial_conn.read(1)
+            if not c:
+                continue
+            if c == b"!":
+                buf = c
+            elif buf:
+                if c == b"\r":
+                    s = buf.decode("ascii", errors="replace")
+                    if len(s) < 11:
+                        return None
+                    # An 11-char frame is a set-ACK: its CRC echoes the
+                    # request CRC. Longer frames carry their own CRC.
+                    expect = sent_crc if len(s) == 11 else self._crc16(buf[:-4])
+                    if expect != int(s[-4:], 16):
+                        return None
+                    if int(s[3:7], 16) != self._seq:
+                        buf = b""  # stale frame, keep listening
+                        continue
+                    return s[7:-4]
+                buf += c
+        return None
+
+    def _read_param(self, par_id, kind, inst=1):
+        """Read one parameter; returns value or None on timeout/NACK."""
+        p = self._transact(f"?VR{par_id:04X}{inst:02X}")
+        if p is None or p.startswith("+") or len(p) != 8:
+            return None
+        if kind == 'i':
+            v = int(p, 16)
+            return v - (1 << 32) if v >= (1 << 31) else v
+        f = struct.unpack(">f", bytes.fromhex(p))[0]
+        return int(f) if kind == 'fi' else f
+
+    def _write_f32(self, par_id, value, inst=1):
+        bits = struct.unpack(">I", struct.pack(">f", float(value)))[0]
+        p = self._transact(f"VS{par_id:04X}{inst:02X}{bits:08X}")
+        return p is not None and not p.startswith("+")
+
+    # --- serial / startup ---
+
+    def init_serial(self):
+        ok = super().init_serial()
+        if not ok or not self.serial_conn or not self.serial_conn.is_open:
+            self._did_startup_for_connection = False
+            return False
+
+        if not self._did_startup_for_connection:
+            try:
+                ident = self._transact("?IF")
+                if ident:
+                    self.logger.info(f"LDD identified: {ident.strip()}")
+
+                if self.setc is not None:
+                    ok = self._write_f32(2102, float(self.setc))
+                    self.logger.info(f"SETC {float(self.setc):.3f} -> {'OK' if ok else 'FAILED'}")
+
+                if self.sett is not None:
+                    ok = self._write_f32(4000, float(self.sett))
+                    self.logger.info(f"SETT {float(self.sett):.2f} -> {'OK' if ok else 'FAILED'}")
+
+                self._did_startup_for_connection = True
+            except Exception as e:
+                self.logger.warning(f"LDD startup failed: {e}")
+
+        return True
+
+    # --- polling ---
+
+    def read_serial_data(self):
+        """Poll all parameters once per poll_interval; returns a full row."""
+        now = time.time()
+        if now - self._last_poll < self.poll_interval:
+            return None
+        self._last_poll = now
+
+        try:
+            row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+            got_any = False
+            for par_id, kind in self.PARAMS:
+                v = self._read_param(par_id, kind)
+                if v is None:
+                    row.append("nan")
+                elif kind == 'f':
+                    row.append(f"{v:.4f}")
+                else:
+                    row.append(v)
+                if v is not None:
+                    got_any = True
+
+            if not got_any:
+                self.logger.warning("LDD poll: no parameter answered")
+                self.consecutive_failures += 1
+                return None
+
+            return row
+
+        except Exception as e:
+            self.logger.error(f"LDD poll error: {e}")
+            self.consecutive_failures += 1
+            try:
+                if self.serial_conn:
+                    self.serial_conn.close()
+            except Exception:
+                pass
+            self.serial_conn = None
+            return None
+
+    def parse_data(self, data):
+        # read_serial_data already returns a finished row
+        return data if isinstance(data, list) else None
+
+
 # Factory function to create sensors
 def create_sensor(sensor_type, name, config):
     """Factory function to create appropriate sensor instance"""
@@ -976,6 +1175,7 @@ def create_sensor(sensor_type, name, config):
         'MiniaethMA200': MiniaethMA200Sensor,
         'POPS': POPSSensor,
         'LDD': LDDSensor,
+        'LDD_USB': LDDUSBSensor,
         'Pump': PumpSensor,
         'Cavity': CavitySensor,
         'Generic': GenericSensor  # Fallback
