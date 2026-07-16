@@ -26,7 +26,7 @@ class CSVSpectrometer:
         self.running = True
         self.consecutive_failures = 0
         self.max_failures = 3
-        self.reconnect_delay = 2
+        self.reconnect_delay = 10
         self.summary_interval = summary_interval
 
         # Resolve per-run output dirs (created by run_paths)
@@ -73,6 +73,12 @@ class CSVSpectrometer:
                 self.logger.warning("No spectrometers found!")
                 return False
 
+            # pyseabreeze resets the device as a side effect of list_devices()
+            # (it opens/closes each device to read its serial number). Opening
+            # again before the SR6 finishes recovering from that reset fails
+            # with [Errno 19] No such device, so give it time to come back.
+            time.sleep(2)
+
             self.spec = sb.Spectrometer(devices[0])
             self.spec.integration_time_micros(250000)  # 250ms
 
@@ -101,10 +107,13 @@ class CSVSpectrometer:
 
     def init_full_csv(self):
         """Initialize full spectra CSV with wavelength header columns"""
+        # On reconnect the file already has header + data; don't overwrite it
+        if Path(self.full_csv).exists():
+            return
+
         # Header: Timestamp + one column per wavelength
         header = ["Timestamp"] + [f"{wl:.4f}" for wl in self.wavelengths]
 
-        # Create/overwrite file and write header
         with open(self.full_csv, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(header)
@@ -193,7 +202,7 @@ class CSVSpectrometer:
         # Wait for initial connection
         while not self.spec and self.running:
             current_time = time.time()
-            if current_time - last_connection_attempt >= 5:
+            if current_time - last_connection_attempt >= 15:
                 self.logger.info("Attempting to connect to spectrometer...")
                 if self.connect():
                     break
@@ -255,9 +264,10 @@ class CSVSpectrometer:
                         self.append_to_full_csv()
                         last_full_csv_write = current_time
 
-                # Failure handling
-                if self.consecutive_failures >= self.max_failures:
-                    self.logger.warning("Too many failures, attempting recovery...")
+                # Failure handling: reconnect if the device handle is gone
+                # (a single I/O error clears self.spec) or failures pile up
+                if self.spec is None or self.consecutive_failures >= self.max_failures:
+                    self.logger.warning("Spectrometer disconnected or too many failures, attempting recovery...")
                     # Flush any remaining data before reconnecting
                     if self.spectra_buffer:
                         self.append_to_full_csv()
