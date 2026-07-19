@@ -68,7 +68,7 @@
         "model_id": "0005"
       },
       "mode": 6,
-      "baudrate": 9600,
+      "baudrate": 115200,
       "timeout": 2,
     "column_names": ["Timestamp","time_since_start_s","number_cm3","diameter_nm","ldsa_um2_cm3","total_surface_um2_cm3","mass_ug_m3","gsd",
     "charger_current_nA","charger_hv_V","precipitator_voltage_V","temperature_C","rh_percent","pressure_mbar","flow_lpm","battery_V","pump_current_mA","status","internal_value","solution_steps",

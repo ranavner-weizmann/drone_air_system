@@ -126,19 +126,10 @@ class Partector2ProSensor(GenericSensor):
     def __init__(self, name, config):
         super().__init__(name, config)
 
-        # naneos' own library uses 9600; the device's USB stack does not
-        # stream at other line-coding settings (115200 silently fails).
-        self.baudrate = 9600
+        self.baudrate = 115200
         self.timeout = 2
         self.mode = 6  # FORCE mode 6 for Pro (size distribution)
         self._did_startup = False
-        # Wall-clock time of the last received data line; used to detect a
-        # device that went silent (e.g. power-cycled) while the serial
-        # connection itself stayed open.
-        self._last_rx = None
-        # Mode-6 lines normally arrive every few seconds, so a minute of
-        # silence means the device is no longer streaming.
-        self._silence_timeout = 60
 
     # --------------------------------------------------
     # Serial Init
@@ -155,19 +146,12 @@ class Partector2ProSensor(GenericSensor):
                 time.sleep(2)
                 self.serial_conn.reset_input_buffer()
 
-                # Commands are terminated by '!' itself - no \r\n, matching
-                # naneos' own library.
                 # Stop streaming first (important)
-                self.serial_conn.write(b"X0000!")
+                self.serial_conn.write(b"X0000!\r\n")
                 time.sleep(0.5)
 
-                # Start mode 6 (size distribution). M0004 selects the size
-                # distribution output; the device may not remember it across
-                # a power cycle, so always send it rather than relying on a
-                # previously stored setting.
-                self.serial_conn.write(b"X0006!")
-                time.sleep(0.2)
-                self.serial_conn.write(b"M0004!")
+                # Start mode 6 (size distribution)
+                self.serial_conn.write(b"X0006!\r\n")
                 self.logger.info("Partector Pro set to mode 6 (size distribution)")
 
                 time.sleep(1)
@@ -179,7 +163,6 @@ class Partector2ProSensor(GenericSensor):
                 self.logger.error(f"P2Pro init error: {e}")
                 return False
 
-        self._last_rx = time.time()
         return True
 
     # --------------------------------------------------
@@ -194,23 +177,8 @@ class Partector2ProSensor(GenericSensor):
         try:
             line = self.serial_conn.readline()
             if not line:
-                # The connection can stay "open" while the device itself has
-                # stopped streaming (e.g. after a power cycle). If it has
-                # been silent too long, tear down and redo the full startup
-                # (X0000/X0006/M0004) on the next call.
-                if self._last_rx and time.time() - self._last_rx > self._silence_timeout:
-                    self.logger.warning(
-                        f"P2Pro silent for {self._silence_timeout}s - forcing full re-init"
-                    )
-                    try:
-                        self.serial_conn.close()
-                    except Exception:
-                        pass
-                    self.serial_conn = None
-                    self._did_startup = False
                 return None
 
-            self._last_rx = time.time()
             decoded = line.decode("utf-8", errors="ignore").strip()
 
             # Ignore command echoes
@@ -222,7 +190,6 @@ class Partector2ProSensor(GenericSensor):
         except Exception as e:
             self.logger.error(f"P2Pro read error: {e}")
             self.serial_conn = None
-            self._did_startup = False
             return None
 
     # --------------------------------------------------
