@@ -90,7 +90,7 @@
     "pops": {
       "type": "POPS",
       "script": "sensor_runner.py",
-      "enabled": false,
+      "enabled": true,
       "startup_delay": 2,
       "restart_delay": 5,
 

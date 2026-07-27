@@ -55,6 +55,10 @@ class VitalsExporter:
             'cavity': {
                 'columns': ['TEC_ActualOutputCurrent', 'TEC_ObjectTemperature', 'temp_c', 'humidity_pct', 'pressure_mb', 'pump_rpm'],
                 'aliases': ['TECA', 'TECT', 'Ti', 'RHi', 'Pi', 'RPM']
+            },
+            'pops': {
+                'columns': ['PartCon'],
+                'aliases': ['POPS_C']
             }
         }
 
