@@ -105,9 +105,9 @@ class TriSonicaSensor(GenericSensor):
                 data_dict.get('T', ''),  # Temperature
                 data_dict.get('H', ''),  # Relative Humidity
                 data_dict.get('P', ''),  # Pressure
-                data_dict.get('PI', ''), # Compass Heading
-                data_dict.get('RO', ''), # Pitch
-                data_dict.get('MD', '')  # Roll
+                data_dict.get('MD', ''), # Compass Heading
+                data_dict.get('PI', ''), # Pitch
+                data_dict.get('RO', '')  # Roll
             ]
             
             # Add timestamp as first column
