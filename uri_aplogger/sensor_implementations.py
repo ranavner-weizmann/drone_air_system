@@ -19,10 +19,11 @@ class iMetSensor(GenericSensor):
             data_list = data.split(',')
             
             # Process temperatures (divide by 100)
-            data_list[1] = float(data_list[1]) 
+            data_list[1] = float(data_list[1])
             data_list[1] /= 100
-            data_list[3] = float(data_list[3]) 
-            data_list[3] /= 100
+            # Relative humidity is transmitted as %RH * 10, not * 100
+            data_list[3] = float(data_list[3])
+            data_list[3] /= 10
 
             # Adjust time by 2 hours
             if len(data_list) > 5 and data_list[5] and ':' in data_list[5]:
