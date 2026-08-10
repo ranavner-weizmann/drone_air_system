@@ -108,7 +108,12 @@ class GenericSensor:
             target_vendor = str(ids.get("vendor_id", "")).lower()
             target_model = str(ids.get("model_id", "")).lower()
             target_serial = ids.get("serial_short")
-            target_serial = str(target_serial).lower() if target_serial else None
+            if isinstance(target_serial, list):
+                target_serials = {str(s).lower() for s in target_serial if s}
+            elif target_serial:
+                target_serials = {str(target_serial).lower()}
+            else:
+                target_serials = None
 
             if not target_vendor or not target_model:
                 self.logger.error(f"{self.name}: identifiers must include vendor_id and model_id")
@@ -124,8 +129,8 @@ class GenericSensor:
                 node = device.device_node
 
                 if vendor_id == target_vendor and model_id == target_model:
-                    # If serial_short is specified, enforce it
-                    if target_serial and serial_s != target_serial:
+                    # If serial_short is specified, enforce it (single value or whitelist)
+                    if target_serials and serial_s not in target_serials:
                         continue
                     matches.append((node, serial_s))
 
@@ -137,14 +142,14 @@ class GenericSensor:
             if len(matches) > 1:
                 self.logger.error(
                     f"{self.name}: Multiple devices match {target_vendor}:{target_model} "
-                    f"{'(no serial_short specified)' if not target_serial else ''} -> {matches}"
+                    f"{'(no serial_short specified)' if not target_serials else ''} -> {matches}"
                 )
                 return None
 
             # No matches
-            if target_serial:
+            if target_serials:
                 self.logger.error(
-                    f"{self.name}: No device found for {target_vendor}:{target_model} serial_short={target_serial}"
+                    f"{self.name}: No device found for {target_vendor}:{target_model} serial_short in {sorted(target_serials)}"
                 )
             else:
                 self.logger.error(
