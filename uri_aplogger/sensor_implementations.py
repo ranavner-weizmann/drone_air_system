@@ -7,6 +7,7 @@ from generic_sensor import GenericSensor
 from datetime import datetime, timedelta
 import time
 import re
+from collections import deque
 
 from run_paths import get_csv_dir, get_run_dir
 
@@ -269,9 +270,19 @@ class MiniaethMA200Sensor(GenericSensor):
         self.baudrate = config.get("baudrate", 1000000)
         self.timeout = config.get("timeout", 1)
 
-        # Poll rate (seconds) — IMPORTANT so we don’t spam dr
-        self.poll_interval = float(config.get("poll_interval", 1.0))
-        self._last_poll = 0.0
+        # The MA200 streams continuously once told to start (see
+        # obsolete/aeth_test.py: a single "dr" is followed by an
+        # unprompted stream of lines). We only send "dr" once per
+        # connection and then drain whatever the device pushes.
+        self._stream_started = False
+        self._line_queue = deque()
+
+    def init_serial(self):
+        ok = super().init_serial()
+        if ok:
+            self._stream_started = False
+            self._line_queue.clear()
+        return ok
 
     def read_serial_data(self):
         # Ensure connection
@@ -279,40 +290,36 @@ class MiniaethMA200Sensor(GenericSensor):
             if not self.init_serial():
                 return None
 
-        # Throttle polling (GenericSensor.run loops every 0.1s) :contentReference[oaicite:2]{index=2}
-        now = time.time()
-        if now - self._last_poll < self.poll_interval:
-            return None
-        self._last_poll = now
-
         try:
-            # Clear any queued junk so we read the freshest response
-            try:
-                self.serial_conn.reset_input_buffer()
-            except Exception:
-                pass
+            if not self._stream_started:
+                # Clear stale junk once, before kicking off the stream.
+                try:
+                    self.serial_conn.reset_input_buffer()
+                except Exception:
+                    pass
+                self.serial_conn.write(b"dr\r")
+                self._stream_started = True
+                self.logger.debug("MA200: sent 'dr' to start data stream")
 
-            self.serial_conn.write(b"dr\r")
-
-            # Read for up to ~timeout seconds; skip echo/blank lines
-            deadline = time.time() + max(1.0, float(self.timeout))
-            while time.time() < deadline:
+            # Pull in everything currently buffered so nothing queues up
+            # and gets lost between calls (GenericSensor.run loops every
+            # ~0.1s, faster than the MA200's own output rate).
+            while self.serial_conn.in_waiting > 0:
                 raw = self.serial_conn.readline()
                 if not raw:
-                    continue
+                    break
                 line = raw.decode("utf-8", errors="ignore").strip()
 
-                # DEBUG: show everything we receive
                 self.logger.debug(f"MA200 RX: {line!r}")
 
-                if not line:
-                    continue
-                if line.lower() == "dr":
+                if not line or line.lower() == "dr":
                     continue
                 if line.startswith("MA200-") and "," in line:
-                    return line
+                    self._line_queue.append(line)
 
-            self.logger.debug("MA200: no valid data line received this poll")
+            if self._line_queue:
+                return self._line_queue.popleft()
+
             return None
 
         except Exception as e:
@@ -321,6 +328,7 @@ class MiniaethMA200Sensor(GenericSensor):
             if self.serial_conn:
                 self.serial_conn.close()
                 self.serial_conn = None
+            self._stream_started = False
             return None
 
     def parse_data(self, data):
