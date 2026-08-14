@@ -40,6 +40,10 @@ class VitalsExporter:
                 'columns': ['Ozone_ppb'],
                 'aliases': ['O3']
             },
+            'trisonica': {
+                'columns': ['Wind_Speed'],
+                'aliases': ['WS']
+            },
             'spectro': {
                 'columns': ['max_intensity'],
                 'aliases': ['I']
@@ -51,6 +55,10 @@ class VitalsExporter:
             'miniaeth': {
                 'columns': ['blue_BCc'],
                 'aliases': ['MA']
+            },
+            'ldd': {
+                'columns': ['TEC_ActualOutputCurrent', 'TEC_ObjectTemperature'],
+                'aliases': ['TECA', 'TECT']
             },
             'cavity': {
                 'columns': ['TEC_ActualOutputCurrent', 'TEC_ObjectTemperature', 'temp_c', 'humidity_pct', 'pressure_mb', 'pump_rpm'],
