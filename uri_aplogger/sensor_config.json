@@ -8,7 +8,7 @@
     "imet": {
       "type": "iMet",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 2,
       "identifiers": {
@@ -23,7 +23,7 @@
     "pom": {
       "type": "POM",
       "script": "sensor_runner.py", 
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 2,
       "identifiers": {
@@ -37,7 +37,7 @@
     "trisonica": {
       "type": "TriSonica",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 2,
       "identifiers": {
@@ -60,7 +60,7 @@
     "partector2pro": {
       "type": "Partector2Pro",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "restart_delay": 5,
       "startup_delay": 3,
       "identifiers": {
@@ -80,16 +80,16 @@
       "enabled": true,
 
       "identifiers": { "vendor_id": "0403", "model_id": "6001" },
-      "baudrate": 921600,
+      "baudrate": 1000000,
       "timeout": 1,
 
       "logging": { "verbosity": 3, "console": true, "file": true },
-      "column_names": ["Timestamp", "serial_number", "datum_id", "session_id", "data_format_version", "firmware_version", "date_time_local", "timezone_offset_min", "gps_lat", "gps_long", "gps_speed", "timebase_s", "status", "battery_pct", "accel_x", "accel_y", "accel_z", "tape_position", "flow_setpoint", "flow_total", "flow1", "flow2", "sample_temp_C", "sample_RH_pct", "sample_dewpoint_C", "internal_pressure_Pa", "internal_temp_C", "optical_config", "UV_sen1", "UV_sen2", "UV_ref", "UV_ATN1", "UV_ATN2", "UV_K", "blue_sen1", "blue_sen2", "blue_ref", "blue_ATN1", "blue_ATN2", "blue_K", "green_sen1", "green_sen2", "green_ref", "green_ATN1", "green_ATN2", "green_K", "red_sen1", "red_sen2", "red_ref", "red_ATN1", "red_ATN2", "red_K", "IR_sen1", "IR_sen2", "IR_ref", "IR_ATN1", "IR_ATN2", "IR_K", "UV_BC1", "UV_BC2", "UV_BCc", "blue_BC1", "blue_BC2", "blue_BCc", "green_BC1", "green_BC2", "green_BCc", "red_BC1", "red_BC2", "red_BCc", "IR_BC1", "IR_BC2", "IR_BCc", "checksum_hex"]
+      "column_names": ["Timestamp", "serial_number", "datum_id", "session_id", "data_format_version", "firmware_version", "date_time_local", "timezone_offset_min", "gps_lat", "gps_long", "gps_speed", "timebase_s", "status", "battery_pct", "accel_x", "accel_y", "accel_z", "tape_position", "flow_setpoint", "flow_total", "flow1", "flow2", "sample_temp_C", "sample_RH_pct", "sample_dewpoint_C", "internal_pressure_Pa", "internal_temp_C", "optical_config", "UV_sen1", "UV_sen2", "UV_ref", "UV_ATN1", "UV_ATN2", "UV_K", "blue_sen1", "blue_sen2", "blue_ref", "blue_ATN1", "blue_ATN2", "blue_K", "green_sen1", "green_sen2", "green_ref", "green_ATN1", "green_ATN2", "green_K", "red_sen1", "red_sen2", "red_ref", "red_ATN1", "red_ATN2", "red_K", "IR_sen1", "IR_sen2", "IR_ref", "IR_ATN1", "IR_ATN2", "IR_K", "UV_BC1", "UV_BC2", "UV_BCc", "blue_BC1", "blue_BC2", "blue_BCc", "green_BC1", "green_BC2", "green_BCc", "red_BC1", "red_BC2", "red_BCc", "IR_BC1", "IR_BC2", "IR_BCc", "UV_BC1_smooth", "UV_BCc_smooth", "blue_BC1_smooth", "blue_BCc_smooth", "IR_BC1_smooth", "IR_BCc_smooth", "Cref", "AAE_WB", "AAE_FF", "BCc_WB", "BCc_FF", "AAE", "BB_pct", "delta_C", "pump_drive", "reporting_temp_C", "reporting_pressure_Pa", "wifi_rssi", "checksum_hex"]
     },
     "pops": {
       "type": "POPS",
       "script": "sensor_runner.py",
-      "enabled": true,
+      "enabled": false,
       "startup_delay": 2,
       "restart_delay": 5,
 
