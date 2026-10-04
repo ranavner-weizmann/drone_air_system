@@ -232,6 +232,56 @@ If not, the dashboard may look healthy but never update.
 
 ---
 
+## Derived columns
+
+A few columns in the per-sensor CSVs are not sent by the instrument but computed
+by the logger as each row is parsed (`derived.py`). They are always the *last*
+columns of the sensor's `column_names`, so the raw device fields never move. The
+maths is pure Python with constants precomputed once per process; each row costs
+on the order of 10-20 multiplies and a few logs, which is negligible on a
+Raspberry Pi even at the sensors' native rates.
+
+### POPS: `PM1_ug_m3`, `PM2.5_ug_m3`
+Mass concentration (ug/m3) of particles below 1000 nm and 2500 nm optical
+diameter, from the 1 s histogram `b0..b15`:
+- Bin edges in nm come from the POPS User Manual Rev. 8, Appendix 3 (Mie theory,
+  PSL refractive index). Tables exist for `nbins` = 16 (default) and 8, and are
+  only valid for the factory `logmin`/`logmax` (1.6 / 4.817). Any other
+  configuration leaves the columns blank and logs one warning.
+- Each particle is a sphere at the bin's geometric-mean diameter. The bin that
+  straddles a cutoff contributes the fraction of its log-width below the cutoff.
+- Sampled volume is `POPS_Flow` (cm3/s) x 1 s.
+- Particle density is `pm_density_g_cm3` in `sensor_config.json` (default 1.65).
+
+### MA200 (`miniaeth`): `AAE_fit`, `AAE_fit_amp`
+Absorption Angstrom exponent from a least-squares power-law fit across the five
+channels (375, 470, 528, 625, 880 nm):
+
+    babs(lambda) = AAE_fit_amp * (lambda / lambda_ref) ^ (-AAE_fit)
+
+- `babs` (Mm^-1) = BC (ng/m3) x MAC (m2/g) x 1e-3, using the loading-compensated
+  `*_BCc` value when present, else `*_BC1`. Channels that are blank or <= 0 are
+  dropped; at least two channels are needed, otherwise the columns are blank.
+- `AAE_fit_amp` is the fitted absorption coefficient at `lambda_ref` (Mm^-1).
+- `lambda_ref` and the per-channel MAC values live under `aae_fit` in
+  `sensor_config.json` (defaults: 880 nm and the AethLabs sigma_ATN values).
+- This is independent of the instrument's own `AAE` column (v3 format), which
+  is useful as a cross-check.
+
+### iMet: `temp_C`, `hum_temp_C`
+The iMet sends temperature and humidity-sensor temperature in hundredths of a
+degree C; `temp` / `hum_temp` keep the raw field, these two hold the value / 100
+with two decimals. `vitals.py` exports `temp_C` as `T`.
+
+### Tests
+    cd uri_aplogger
+    python -m unittest tests.test_derived -v
+
+The tests stub `pyudev`/`serial` when they are not installed, so they also run
+on a laptop.
+
+---
+
 ## FIFO / live command control
 
 ### LDD commands

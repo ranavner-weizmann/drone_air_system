@@ -33,7 +33,9 @@ class VitalsExporter:
         # Define vital columns for each sensor (most important data only)
         self.vital_columns = {
             'imet': {
-                'columns': ['temp'],
+                # temp_C is the scaled derived column (degC); 'temp' is the
+                # raw device field in hundredths of a degree.
+                'columns': ['temp_C'],
                 'aliases': ['T']
             },
             'pom': {

@@ -12,10 +12,66 @@ from collections import deque
 import numpy as np
 
 from run_paths import get_csv_dir, get_run_dir
+from derived import (to_float, fmt, PopsPMCalculator, PowerLawFit,
+                     MA200_WAVELENGTHS_NM, MA200_MAC_M2_G, MA200_CHANNEL_ORDER,
+                     POPS_FACTORY_LOGMIN, POPS_FACTORY_LOGMAX)
+
+
+def _col_index(column_names, name):
+    """Index of `name` in the configured header, or None."""
+    try:
+        return column_names.index(name)
+    except ValueError:
+        return None
+
+
+def _derived_layout(column_names, derived):
+    """
+    (n_raw, append) for a sensor whose header may end with `derived` columns.
+    If the configured header does not end with exactly those names (e.g. an
+    older sensor_config.json), nothing is appended and the raw row is aligned
+    to the full header, so a code/config mismatch can never shift columns.
+    """
+    k = len(derived)
+    if k and len(column_names) >= k and tuple(column_names[-k:]) == tuple(derived):
+        return len(column_names) - k, True
+    return len(column_names), False
+
+
+def _fit_row_length(row, n):
+    """Pad with '' / truncate in place so that len(row) == n (n <= 0: no-op)."""
+    if n <= 0:
+        return row
+    if len(row) < n:
+        row.extend([""] * (n - len(row)))
+    elif len(row) > n:
+        del row[n:]
+    return row
+
 
 class iMetSensor(GenericSensor):
     """iMet sensor implementation"""
-    
+
+    # Derived columns appended after the device fields (see sensor_config.json):
+    #   temp_C      - 'temp' / 100      (device sends hundredths of degC)
+    #   hum_temp_C  - 'hum_temp' / 100  (same scaling, humidity-sensor temperature)
+    DERIVED_COLUMNS = ("temp_C", "hum_temp_C")
+
+    def __init__(self, name, config):
+        super().__init__(name, config)
+        cols = config.get("column_names", [])
+        self._n_raw_cols, self._append_derived = _derived_layout(cols, self.DERIVED_COLUMNS)
+        if not self._append_derived:
+            self.logger.warning("iMet: column_names do not end with "
+                                f"{list(self.DERIVED_COLUMNS)}; derived columns disabled")
+        self._idx_temp = _col_index(cols, "temp")
+        self._idx_hum_temp = _col_index(cols, "hum_temp")
+
+    @staticmethod
+    def _hundredths_to_degC(raw):
+        v = to_float(raw)
+        return "" if v is None else f"{v / 100.0:.2f}"
+
     def parse_data(self, data):
         try:
             data = data.strip().lstrip(',')
@@ -39,7 +95,16 @@ class iMetSensor(GenericSensor):
             # Add timestamp and remove first field (printed XQ)
             data_list = data_list[1:11]  # Take exactly 10 fields
             data_list.insert(0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            
+
+            # Derived: scaled temperatures. Raw device fields stay as they are;
+            # the new values are appended so existing columns never move.
+            _fit_row_length(data_list, self._n_raw_cols)
+            if self._append_derived:
+                temp_c = "" if self._idx_temp is None else self._hundredths_to_degC(data_list[self._idx_temp])
+                hum_c = "" if self._idx_hum_temp is None else self._hundredths_to_degC(data_list[self._idx_hum_temp])
+                data_list.append(temp_c)
+                data_list.append(hum_c)
+
             return data_list
         except Exception as e:
             self.logger.error(f"Parse error: {e}, data: {data}")
@@ -265,10 +330,39 @@ class Partector2ProSensor(GenericSensor):
             return None
 
 class MiniaethMA200Sensor(GenericSensor):
+    # Derived columns appended after the device fields (see sensor_config.json):
+    #   AAE_fit      - absorption Angstrom exponent from a 5-wavelength
+    #                  power-law fit  babs(lam) = A * (lam/lam_ref)^(-AAE)
+    #   AAE_fit_amp  - A, the fitted absorption coefficient at lam_ref [Mm^-1]
+    # babs(lam) = BC(lam) * MAC(lam); BCc is used when available, else BC1.
+    DERIVED_COLUMNS = ("AAE_fit", "AAE_fit_amp")
+
     def __init__(self, name, config):
         super().__init__(name, config)
         self.baudrate = config.get("baudrate", 1000000)
         self.timeout = config.get("timeout", 1)
+
+        cols = config.get("column_names", [])
+        self._n_raw_cols, self._append_derived = _derived_layout(cols, self.DERIVED_COLUMNS)
+        if not self._append_derived:
+            self.logger.warning("MA200: column_names do not end with "
+                                f"{list(self.DERIVED_COLUMNS)}; derived columns disabled")
+        self._warned_len = False
+
+        aae_cfg = config.get("aae_fit", {}) or {}
+        ref_nm = float(aae_cfg.get("ref_wavelength_nm", 880.0))
+        mac = dict(MA200_MAC_M2_G)
+        mac.update(aae_cfg.get("mac_m2_g", {}) or {})
+        # Per channel: (BCc index, BC1 index, MAC * 1e-3 -> Mm^-1 per ng/m3)
+        self._aae_channels = tuple(
+            (_col_index(cols, f"{ch}_BCc"), _col_index(cols, f"{ch}_BC1"), float(mac[ch]) * 1e-3)
+            for ch in MA200_CHANNEL_ORDER
+        )
+        self._aae_fit = PowerLawFit(
+            [MA200_WAVELENGTHS_NM[ch] for ch in MA200_CHANNEL_ORDER], ref_nm)
+        self.logger.info(
+            f"MA200 AAE fit: ref {ref_nm:g} nm, MAC m2/g = "
+            + ", ".join(f"{ch} {mac[ch]:g}" for ch in MA200_CHANNEL_ORDER))
 
         # The MA200 streams continuously once told to start (see
         # obsolete/aeth_test.py: a single "dr" is followed by an
@@ -331,11 +425,38 @@ class MiniaethMA200Sensor(GenericSensor):
             self._stream_started = False
             return None
 
+    def _absorption_Mm(self, parts):
+        """babs per channel [Mm^-1] from the aligned row, None where unusable."""
+        n = len(parts)
+        out = []
+        for idx_bcc, idx_bc1, mac_k in self._aae_channels:
+            v = None
+            for idx in (idx_bcc, idx_bc1):
+                if idx is not None and idx < n:
+                    f = to_float(parts[idx])
+                    if f is not None and f > 0.0:
+                        v = f * mac_k
+                        break
+            out.append(v)
+        return out
+
     def parse_data(self, data):
         try:
             parts = [p.strip() for p in data.split(",")]
             parts.insert(0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             self.logger.debug(f"MA200 parsed fields: {len(parts)}")
+
+            if self._n_raw_cols > 0 and len(parts) != self._n_raw_cols and not self._warned_len:
+                self.logger.warning(
+                    f"MA200 line has {len(parts)} fields incl. timestamp, header expects "
+                    f"{self._n_raw_cols}; padding/truncating so derived columns stay aligned")
+                self._warned_len = True
+            _fit_row_length(parts, self._n_raw_cols)
+
+            if self._append_derived:
+                aae, amp = self._aae_fit.fit(self._absorption_Mm(parts))
+                parts.append(fmt(aae, 4))
+                parts.append(fmt(amp, 5))
             return parts
         except Exception as e:
             self.logger.error(f"Parse error: {e}, data: {data}")
@@ -351,6 +472,12 @@ class POPSSensor(GenericSensor):
     Replaces legacy pops_class UDP behavior but uses the same CSV/merge conventions.
     """
 
+    # Derived columns appended after the device fields (see sensor_config.json):
+    #   PM1_ug_m3, PM2.5_ug_m3 - mass below 1000 / 2500 nm optical diameter,
+    #   from the 1 s histogram (b0..b15), the manual's bin edges, an assumed
+    #   particle density and the sampled volume (POPS_Flow [cm3/s] x 1 s).
+    DERIVED_COLUMNS = ("PM1_ug_m3", "PM2.5_ug_m3")
+
     def __init__(self, name, config):
         super().__init__(name, config)
         self.udp_ip = config.get("udp_ip", "0.0.0.0")
@@ -362,6 +489,22 @@ class POPSSensor(GenericSensor):
         # GenericSensor fields used for reconnect/failure handling
         self.reconnect_delay = config.get("reconnect_delay", self.reconnect_delay)
         self.max_failures = config.get("max_failures", self.max_failures)
+
+        # PM derivation setup (indices resolved once from the configured header)
+        cols = config.get("column_names", [])
+        self._n_raw_cols, self._append_derived = _derived_layout(cols, self.DERIVED_COLUMNS)
+        if not self._append_derived:
+            self.logger.warning("POPS: column_names do not end with "
+                                f"{list(self.DERIVED_COLUMNS)}; derived columns disabled")
+        self._pm = PopsPMCalculator(density_g_cm3=config.get("pm_density_g_cm3", 1.65))
+        self._idx_nbins = _col_index(cols, "nbins")
+        self._idx_logmin = _col_index(cols, "logmin")
+        self._idx_logmax = _col_index(cols, "logmax")
+        self._idx_flow = _col_index(cols, "POPS_Flow")
+        self._idx_b0 = _col_index(cols, "b0")
+        self._pm_warned = set()
+        self.logger.info(f"POPS PM: density {self._pm.density:g} g/cm3, "
+                         f"cutoffs {self._pm.cutoffs} nm")
 
     def _open_socket(self):
         if self._sock:
@@ -414,24 +557,59 @@ class POPSSensor(GenericSensor):
             self._sock = None
             return None
 
+    def _warn_once(self, key, msg):
+        if key not in self._pm_warned:
+            self._pm_warned.add(key)
+            self.logger.warning(msg)
+
+    def _pm_from_row(self, row):
+        """(PM1, PM2.5) in ug/m3 from an aligned row; (None, None) if not computable."""
+        none = (None,) * len(self._pm.cutoffs)
+        if self._idx_b0 is None or self._idx_flow is None or self._idx_nbins is None:
+            self._warn_once("cols", "POPS PM: header lacks b0/POPS_Flow/nbins, cannot compute PM")
+            return none
+
+        nbins_f = to_float(row[self._idx_nbins])
+        nbins = int(nbins_f) if nbins_f is not None else 0
+        if self._pm.coefficients(nbins) is None:
+            self._warn_once(("nbins", nbins), f"POPS PM: no bin-edge table for nbins={nbins}, PM left blank")
+            return none
+
+        # The nm bin edges are only valid for the factory logmin/logmax.
+        if self._idx_logmin is not None and self._idx_logmax is not None:
+            lmin = to_float(row[self._idx_logmin])
+            lmax = to_float(row[self._idx_logmax])
+            if (lmin is not None and abs(lmin - POPS_FACTORY_LOGMIN) > 0.01) or \
+               (lmax is not None and abs(lmax - POPS_FACTORY_LOGMAX) > 0.01):
+                self._warn_once(("log", lmin, lmax),
+                                f"POPS PM: logmin/logmax {lmin}/{lmax} differ from factory "
+                                f"{POPS_FACTORY_LOGMIN}/{POPS_FACTORY_LOGMAX}; bin edges unknown, PM left blank")
+                return none
+
+        flow = to_float(row[self._idx_flow])
+        counts = row[self._idx_b0:self._idx_b0 + nbins]
+        return self._pm.compute(counts, nbins, flow)
+
     def parse_data(self, data):
         """
         Legacy POPS payloads were comma-separated and code used message[3:].
         We follow that behavior: split, take fields from index 3 onward,
         then prepend a timestamp so CSV matches your other sensors.
+        Derived PM columns are appended after the device fields.
         """
         try:
             parts = [p.strip() for p in data.split(",")]
             values = parts[3:] if len(parts) > 3 else []
             row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S")] + values
 
-            # Ensure exact column count (pad/truncate) to match config column_names
-            expected = len(self.config.get("column_names", []))
-            if expected:
-                if len(row) < expected:
-                    row += [""] * (expected - len(row))
-                elif len(row) > expected:
-                    row = row[:expected]
+            # Ensure exact raw column count (pad/truncate) so derived columns
+            # always land under their header names.
+            _fit_row_length(row, self._n_raw_cols)
+
+            if self._append_derived:
+                pm1, pm25 = self._pm_from_row(row)
+                row.append(fmt(pm1, 5))
+                row.append(fmt(pm25, 5))
             return row
         except Exception as e:
             self.logger.error(f"POPS parse error: {e}, raw={data!r}")
