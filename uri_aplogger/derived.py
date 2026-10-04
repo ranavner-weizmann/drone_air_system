@@ -11,6 +11,7 @@ element vectors the numpy call overhead dominates and plain float math is
 several times faster.
 """
 
+import bisect
 import math
 
 
@@ -31,18 +32,54 @@ def fmt(x, sig=5):
 # POPS: PM1 / PM2.5 from the size histogram
 # ---------------------------------------------------------------------------
 
-# Optical-diameter bin edges in nm, taken from the POPS User Manual Rev. 8,
-# Appendix 3 "Determining size bin boundaries" (Handix Scientific). The
-# conversion from scattering amplitude to diameter is Mie theory for PSL
-# (refractive index 1.615+0.001i) and assumes the factory histogram settings
-# logmin = 1.6, logmax = 4.817. There are nbins+1 edges per table.
-POPS_BIN_EDGES_NM = {
-    8: [115, 135, 165, 210, 350, 575, 1220, 1990, 3370],
-    16: [115, 125, 135, 150, 165, 185, 210, 250, 350, 475, 575,
-         855, 1220, 1530, 1990, 2585, 3370],
-}
+# The POPS bins particles on log10 of their peak scattering amplitude, with
+# nbins equal-width bins between logmin and logmax (POPS User Manual Rev. 8,
+# Appendix 3). The manual gives the optical-diameter edges in nm for the
+# factory configuration nbins=16, logmin=1.6, logmax=4.817 (Mie theory, PSL
+# refractive index 1.615+0.001i). Those 17 (amplitude, diameter) pairs are the
+# instrument's amplitude->diameter calibration curve, and instruments in the
+# field may run other logmin/logmax values (ours reports logmin=1.0), so the
+# edges for any configuration are obtained by interpolating that curve in
+# log-log space, with the end-segment slopes used for extrapolation. The low
+# end of the table has slope ~1/6 (Rayleigh regime), so extrapolating below
+# 115 nm is physically reasonable; counts there are near zero anyway because
+# such signals sit below the detection threshold.
+POPS_FACTORY_NBINS = 16
 POPS_FACTORY_LOGMIN = 1.6
 POPS_FACTORY_LOGMAX = 4.817
+POPS_FACTORY_EDGES_NM = [115, 125, 135, 150, 165, 185, 210, 250, 350, 475, 575,
+                         855, 1220, 1530, 1990, 2585, 3370]
+
+# Reference tables as printed in the manual (8 bins is every other 16-bin edge).
+POPS_BIN_EDGES_NM = {
+    16: list(POPS_FACTORY_EDGES_NM),
+    8: POPS_FACTORY_EDGES_NM[::2],
+}
+
+_REF_LOGA = [POPS_FACTORY_LOGMIN + k * (POPS_FACTORY_LOGMAX - POPS_FACTORY_LOGMIN) / POPS_FACTORY_NBINS
+             for k in range(POPS_FACTORY_NBINS + 1)]
+_REF_LND = [math.log(d) for d in POPS_FACTORY_EDGES_NM]
+
+
+def _interp_extrap(x, xs, ys):
+    """Piecewise-linear interpolation of (xs, ys) at x; extrapolates with end slopes."""
+    i = bisect.bisect_right(xs, x) - 1
+    i = max(0, min(i, len(xs) - 2))
+    x0, x1 = xs[i], xs[i + 1]
+    y0, y1 = ys[i], ys[i + 1]
+    return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+
+
+def pops_bin_edges_nm(nbins, logmin, logmax):
+    """
+    Optical-diameter bin edges (nm, nbins+1 values) for a POPS histogram
+    configuration, or None if the configuration is not usable.
+    """
+    if nbins is None or nbins < 1 or logmin is None or logmax is None or logmax <= logmin:
+        return None
+    step = (logmax - logmin) / nbins
+    return [math.exp(_interp_extrap(logmin + j * step, _REF_LOGA, _REF_LND))
+            for j in range(nbins + 1)]
 
 
 class PopsPMCalculator:
@@ -53,12 +90,14 @@ class PopsPMCalculator:
     mean diameter. A bin that straddles a cutoff contributes the fraction of
     its log-width that lies below the cutoff, using the geometric mean of
     that sub-range. Counts are per second (POPS histograms are 1 s), so the
-    sampled volume is flow [cm3/s] x 1 s.
+    sampled volume is flow [cm3/s] x 1 s. (The instrument's own PartCon equals
+    PartCt / POPS_Flow, which confirms both the units and the 1 s window.)
 
         mass per particle [ug] = rho[g/cm3] * pi/6 * (D[nm] * 1e-7)^3 * 1e6
         concentration [ug/m3]  = sum(mass_i * N_i) / V[cm3] * 1e6
 
     Both unit factors fold into one constant: rho * pi/6 * D^3 * 1e-9.
+    Coefficients are built once per (nbins, logmin, logmax) and cached.
     """
 
     def __init__(self, density_g_cm3=1.65, cutoffs_nm=(1000.0, 2500.0)):
@@ -66,15 +105,16 @@ class PopsPMCalculator:
         self.cutoffs = tuple(float(c) for c in cutoffs_nm)
         self._coef_cache = {}
 
-    def coefficients(self, nbins):
-        """Per-bin mass coefficients for each cutoff, or None if nbins has no table."""
-        coefs = self._coef_cache.get(nbins)
+    def coefficients(self, nbins, logmin=POPS_FACTORY_LOGMIN, logmax=POPS_FACTORY_LOGMAX):
+        """Per-bin mass coefficients for each cutoff, or None if not computable."""
+        key = (nbins, round(logmin, 4), round(logmax, 4))
+        coefs = self._coef_cache.get(key)
         if coefs is None:
-            edges = POPS_BIN_EDGES_NM.get(nbins)
+            edges = pops_bin_edges_nm(nbins, logmin, logmax)
             if edges is None:
                 return None
             coefs = tuple(self._build(edges, c) for c in self.cutoffs)
-            self._coef_cache[nbins] = coefs
+            self._coef_cache[key] = coefs
         return coefs
 
     def _build(self, edges, cutoff):
@@ -92,17 +132,18 @@ class PopsPMCalculator:
                 coefs.append(0.0)
         return coefs
 
-    def compute(self, counts, nbins, flow_cm3_s, sample_time_s=1.0):
+    def compute(self, counts, nbins, flow_cm3_s,
+                logmin=POPS_FACTORY_LOGMIN, logmax=POPS_FACTORY_LOGMAX, sample_time_s=1.0):
         """
         counts: per-bin counts (strings or numbers), at least nbins long.
         Returns a tuple of concentrations [ug/m3] (one per cutoff); each entry
         is None if the inputs do not allow a value.
         """
         n_out = len(self.cutoffs)
-        coefs = self.coefficients(nbins)
-        if coefs is None or flow_cm3_s is None or flow_cm3_s <= 0:
+        if flow_cm3_s is None or flow_cm3_s <= 0 or nbins is None or len(counts) < nbins:
             return (None,) * n_out
-        if len(counts) < nbins:
+        coefs = self.coefficients(nbins, logmin, logmax)
+        if coefs is None:
             return (None,) * n_out
 
         inv_vol = 1.0 / (flow_cm3_s * sample_time_s)

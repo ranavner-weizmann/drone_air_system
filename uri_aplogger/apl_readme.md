@@ -244,10 +244,13 @@ Raspberry Pi even at the sensors' native rates.
 ### POPS: `PM1_ug_m3`, `PM2.5_ug_m3`
 Mass concentration (ug/m3) of particles below 1000 nm and 2500 nm optical
 diameter, from the 1 s histogram `b0..b15`:
-- Bin edges in nm come from the POPS User Manual Rev. 8, Appendix 3 (Mie theory,
-  PSL refractive index). Tables exist for `nbins` = 16 (default) and 8, and are
-  only valid for the factory `logmin`/`logmax` (1.6 / 4.817). Any other
-  configuration leaves the columns blank and logs one warning.
+- Bin edges in nm are derived from the packet's own `nbins`, `logmin` and
+  `logmax`. The POPS User Manual Rev. 8, Appendix 3, gives the nm edges for the
+  factory 16-bin / 1.6 / 4.817 configuration (Mie theory, PSL refractive index);
+  that table is used as the amplitude-to-diameter calibration curve and
+  interpolated in log-log space, so units running other settings (ours reports
+  `logmin` 1.00) get consistent edges. The edges in use are logged once at
+  startup.
 - Each particle is a sphere at the bin's geometric-mean diameter. The bin that
   straddles a cutoff contributes the fraction of its log-width below the cutoff.
 - Sampled volume is `POPS_Flow` (cm3/s) x 1 s.

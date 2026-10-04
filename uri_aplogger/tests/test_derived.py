@@ -37,6 +37,7 @@ for _mod in ("pyudev", "serial"):
         sys.modules[_mod] = stub
 
 from derived import (PopsPMCalculator, PowerLawFit, POPS_BIN_EDGES_NM,  # noqa: E402
+                     POPS_FACTORY_EDGES_NM, pops_bin_edges_nm,
                      MA200_WAVELENGTHS_NM, MA200_MAC_M2_G, MA200_CHANNEL_ORDER,
                      bc_to_babs_Mm, fmt, to_float)
 import sensor_implementations as impl  # noqa: E402
@@ -87,10 +88,32 @@ class TestPopsPM(unittest.TestCase):
 
     def test_unsupported_inputs_give_none(self):
         calc = PopsPMCalculator()
-        self.assertEqual(calc.compute([1] * 16, 12, 3.0), (None, None))   # no 12-bin table
+        self.assertEqual(calc.compute([1] * 16, 0, 3.0), (None, None))    # no bins
+        self.assertEqual(calc.compute([1] * 16, 16, 3.0, 4.8, 1.0), (None, None))  # logmax <= logmin
         self.assertEqual(calc.compute([1] * 16, 16, 0.0), (None, None))   # zero flow
         self.assertEqual(calc.compute([1] * 16, 16, None), (None, None))  # missing flow
         self.assertEqual(calc.compute([1] * 4, 16, 3.0), (None, None))    # short row
+
+    def test_edges_reproduce_manual_tables(self):
+        e16 = pops_bin_edges_nm(16, 1.6, 4.817)
+        for got, want in zip(e16, POPS_FACTORY_EDGES_NM):
+            self.assertAlmostEqual(got, want, places=9)
+        e8 = pops_bin_edges_nm(8, 1.6, 4.817)
+        for got, want in zip(e8, POPS_BIN_EDGES_NM[8]):
+            self.assertAlmostEqual(got, want, places=9)
+
+    def test_edges_for_field_config(self):
+        # Our unit reports logmin=1.0, logmax=4.81 (manual table assumes 1.6/4.817)
+        e = pops_bin_edges_nm(16, 1.0, 4.81)
+        self.assertEqual(len(e), 17)
+        self.assertTrue(all(b > a for a, b in zip(e, e[1:])))   # monotonic
+        self.assertLess(e[0], 115)                                # extrapolated below the table
+        self.assertAlmostEqual(e[-1], 3370, delta=40)             # top edge ~ factory top
+        # amplitude 10^1.6 must map to 115 nm regardless of the grid it sits on
+        e_single = pops_bin_edges_nm(1, 1.6, 4.817)
+        self.assertAlmostEqual(e_single[0], 115, places=9)
+        # a 12-bin configuration is now computable
+        self.assertIsNotNone(PopsPMCalculator().coefficients(12, 1.0, 4.81))
 
     def test_eight_bin_table(self):
         calc = PopsPMCalculator()
@@ -243,12 +266,30 @@ class TestSensorRows(unittest.TestCase):
         s = impl.POPSSensor("pops", cfg)
         cols = cfg["column_names"]
         values = [""] * (len(cols) - 3)
-        values[cols.index("nbins") - 1] = "12"
+        values[cols.index("nbins") - 1] = "0"
         values[cols.index("POPS_Flow") - 1] = "3.0"
         row = s.parse_data("a,b,c," + ",".join(values))
         d = dict(zip(cols, row))
         self.assertEqual(d["PM1_ug_m3"], "")
         self.assertEqual(d["PM2.5_ug_m3"], "")
+
+    def test_pops_real_packet_from_pi(self):
+        # Captured 2026-10-04 on the drone Pi (logmin=1.00, logmax=4.81, 16 bins).
+        cfg = _quiet(self.sensors["pops"])
+        s = impl.POPSSensor("pops", cfg)
+        cols = cfg["column_names"]
+        payload = ("20261004T100002,36002.0833,3,0,1539,1539,513.29,2233,2258,8.32,10.40,842.46,44.77,"
+                   "383.10,15.46,29.50,3.00,231.65,44.18,355.60,1172.31,32.78,10.94,2.87,1.54,30000,3.0,"
+                   "16,1.00,4.81,0,8,255,512,0,0,135,314,285,243,222,178,129,26,2,4,0,1,0,1")
+        row = s.parse_data("h0,h1,h2," + payload)
+        self._check_shape(row, cols)
+        d = dict(zip(cols, row))
+        self.assertEqual(d["b2"], "135")
+        self.assertEqual(d["logmin"], "1.00")
+        pm1, pm25 = float(d["PM1_ug_m3"]), float(d["PM2.5_ug_m3"])
+        self.assertGreater(pm1, 0.0)
+        self.assertLessEqual(pm1, pm25)
+        self.assertLess(pm25, 500.0)          # 513 particles/cm3, mostly sub-micron
 
 
 if __name__ == "__main__":

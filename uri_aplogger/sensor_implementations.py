@@ -12,7 +12,7 @@ from collections import deque
 import numpy as np
 
 from run_paths import get_csv_dir, get_run_dir
-from derived import (to_float, fmt, PopsPMCalculator, PowerLawFit,
+from derived import (to_float, fmt, PopsPMCalculator, PowerLawFit, pops_bin_edges_nm,
                      MA200_WAVELENGTHS_NM, MA200_MAC_M2_G, MA200_CHANNEL_ORDER,
                      POPS_FACTORY_LOGMIN, POPS_FACTORY_LOGMAX)
 
@@ -474,8 +474,9 @@ class POPSSensor(GenericSensor):
 
     # Derived columns appended after the device fields (see sensor_config.json):
     #   PM1_ug_m3, PM2.5_ug_m3 - mass below 1000 / 2500 nm optical diameter,
-    #   from the 1 s histogram (b0..b15), the manual's bin edges, an assumed
-    #   particle density and the sampled volume (POPS_Flow [cm3/s] x 1 s).
+    #   from the 1 s histogram (b0..b15), bin edges derived from the packet's
+    #   nbins/logmin/logmax via the manual's amplitude->diameter table, an
+    #   assumed particle density and the sampled volume (POPS_Flow [cm3/s] x 1 s).
     DERIVED_COLUMNS = ("PM1_ug_m3", "PM2.5_ug_m3")
 
     def __init__(self, name, config):
@@ -571,24 +572,29 @@ class POPSSensor(GenericSensor):
 
         nbins_f = to_float(row[self._idx_nbins])
         nbins = int(nbins_f) if nbins_f is not None else 0
-        if self._pm.coefficients(nbins) is None:
-            self._warn_once(("nbins", nbins), f"POPS PM: no bin-edge table for nbins={nbins}, PM left blank")
-            return none
 
-        # The nm bin edges are only valid for the factory logmin/logmax.
-        if self._idx_logmin is not None and self._idx_logmax is not None:
-            lmin = to_float(row[self._idx_logmin])
-            lmax = to_float(row[self._idx_logmax])
-            if (lmin is not None and abs(lmin - POPS_FACTORY_LOGMIN) > 0.01) or \
-               (lmax is not None and abs(lmax - POPS_FACTORY_LOGMAX) > 0.01):
-                self._warn_once(("log", lmin, lmax),
-                                f"POPS PM: logmin/logmax {lmin}/{lmax} differ from factory "
-                                f"{POPS_FACTORY_LOGMIN}/{POPS_FACTORY_LOGMAX}; bin edges unknown, PM left blank")
-                return none
+        # Histogram edges depend on the unit's logmin/logmax (ours runs 1.0,
+        # not the factory 1.6); fall back to factory values only if the packet
+        # does not carry them.
+        lmin = to_float(row[self._idx_logmin]) if self._idx_logmin is not None else None
+        lmax = to_float(row[self._idx_logmax]) if self._idx_logmax is not None else None
+        if lmin is None or lmax is None:
+            self._warn_once("logdefaults", "POPS PM: logmin/logmax missing from packet, "
+                            f"assuming factory {POPS_FACTORY_LOGMIN}/{POPS_FACTORY_LOGMAX}")
+            lmin, lmax = POPS_FACTORY_LOGMIN, POPS_FACTORY_LOGMAX
+
+        if self._pm.coefficients(nbins, lmin, lmax) is None:
+            self._warn_once(("cfg", nbins, lmin, lmax),
+                            f"POPS PM: unusable histogram config nbins={nbins} logmin={lmin} "
+                            f"logmax={lmax}, PM left blank")
+            return none
+        self._warn_once(("edges", nbins, lmin, lmax),
+                        f"POPS PM: nbins={nbins} logmin={lmin} logmax={lmax} -> bin edges (nm) "
+                        + ", ".join(f"{e:.0f}" for e in pops_bin_edges_nm(nbins, lmin, lmax)))
 
         flow = to_float(row[self._idx_flow])
         counts = row[self._idx_b0:self._idx_b0 + nbins]
-        return self._pm.compute(counts, nbins, flow)
+        return self._pm.compute(counts, nbins, flow, lmin, lmax)
 
     def parse_data(self, data):
         """
