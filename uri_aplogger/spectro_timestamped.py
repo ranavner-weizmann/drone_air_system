@@ -134,8 +134,8 @@ class TimestampedOceanSR6Reader:
                     # Save to CSV in merger-compatible format
                     writer.writerow([
                         spectrum['timestamp'].strftime("%Y-%m-%d %H:%M:%S"),
-                        f"{spectrum['peak_wavelength']:.4f}",
-                        f"{spectrum['max_intensity']:.2f}",
+                        spectrum['peak_wavelength'],
+                        spectrum['max_intensity'],
                         spectrum['total_points'],
                         'success'
                     ])

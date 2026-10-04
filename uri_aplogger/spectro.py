@@ -112,7 +112,7 @@ class CSVSpectrometer:
             return
 
         # Header: Timestamp + one column per wavelength
-        header = ["Timestamp"] + [f"{wl:.4f}" for wl in self.wavelengths]
+        header = ["Timestamp"] + [str(wl) for wl in self.wavelengths]
 
         with open(self.full_csv, "w", newline="") as f:
             writer = csv.writer(f)
@@ -128,7 +128,9 @@ class CSVSpectrometer:
                 writer = csv.writer(f)
                 for ts, intensities in zip(self.timestamps_buffer, self.spectra_buffer):
                     # One row: timestamp + all intensities
-                    writer.writerow([ts] + [f"{v:.6g}" for v in intensities])
+                    # str() of a numpy scalar is the shortest exact repr;
+                    # no rounding of the raw intensities.
+                    writer.writerow([ts] + [str(v) for v in intensities])
 
             self.logger.info(
                 f"Appended {len(self.spectra_buffer)} spectra to full CSV"
@@ -159,7 +161,7 @@ class CSVSpectrometer:
             peak_wavelength = float(self.wavelengths[intensities.argmax()])
 
             return {
-                "intensities": intensities.astype(np.float32),
+                "intensities": intensities,  # keep the driver's native dtype
                 "peak_wavelength": peak_wavelength,
                 "max_intensity": max_intensity,
                 "timestamp": datetime.now(),
@@ -237,10 +239,10 @@ class CSVSpectrometer:
                             writer.writerow(
                                 [
                                     spectrum["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
-                                    f"{spectrum['peak_wavelength']:.4f}",
-                                    f"{spectrum['max_intensity']:.2f}",
-                                    f"{mean_intensity:.2f}",
-                                    f"{std_intensity:.2f}",
+                                    spectrum["peak_wavelength"],
+                                    spectrum["max_intensity"],
+                                    mean_intensity,
+                                    std_intensity,
                                     len(spectrum["intensities"]),
                                     "success",
                                 ]

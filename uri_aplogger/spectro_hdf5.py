@@ -276,10 +276,10 @@ class HDF5Spectrometer:
                             writer = csv.writer(f)
                             writer.writerow([
                                 spectrum['timestamp'].strftime("%Y-%m-%d %H:%M:%S"),
-                                f"{spectrum['peak_wavelength']:.4f}",
-                                f"{spectrum['max_intensity']:.2f}",
-                                f"{mean_intensity:.2f}",
-                                f"{std_intensity:.2f}",
+                                spectrum['peak_wavelength'],
+                                spectrum['max_intensity'],
+                                mean_intensity,
+                                std_intensity,
                                 len(spectrum['intensities']),
                                 'success'
                             ])

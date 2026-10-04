@@ -9,6 +9,8 @@ import time
 import re
 from collections import deque
 
+import numpy as np
+
 from run_paths import get_csv_dir, get_run_dir
 
 class iMetSensor(GenericSensor):
@@ -246,14 +248,12 @@ class Partector2ProSensor(GenericSensor):
             # Truncate if firmware adds more fields
             parts = parts[:32]
 
-            # Convert numeric safely
-            parsed = []
-            for v in parts:
-                v = v.strip()
-                try:
-                    parsed.append(float(v))
-                except ValueError:
-                    parsed.append(v)
+            # Keep every field exactly as the device sent it (stripped of
+            # padding only). No float() conversion: that would turn "0.500"
+            # into 0.5 and "1531" into 1531.0. Note the device itself reports
+            # RH as a whole percent in this output mode ("46" next to "25.2"
+            # for temperature); naneos' own library types it as int.
+            parsed = [v.strip() for v in parts]
 
             # Prepend wall clock timestamp
             row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S")] + parsed
@@ -977,7 +977,9 @@ class LDDUSBSensor(GenericSensor):
             v = int(p, 16)
             return v - (1 << 32) if v >= (1 << 31) else v
         f = struct.unpack(">f", bytes.fromhex(p))[0]
-        return int(f) if kind == 'fi' else f
+        # 'fi' parameters are integer-valued counts carried in a float32;
+        # only drop the ".0" when the value really is integral.
+        return int(f) if kind == 'fi' and f.is_integer() else f
 
     def _write_f32(self, par_id, value, inst=1):
         bits = struct.unpack(">I", struct.pack(">f", float(value)))[0]
@@ -1028,10 +1030,12 @@ class LDDUSBSensor(GenericSensor):
                 v = self._read_param(par_id, kind)
                 if v is None:
                     row.append("nan")
-                elif kind == 'f':
-                    row.append(f"{v:.4f}")
-                else:
+                elif kind == 'i':
                     row.append(v)
+                else:
+                    # Shortest decimal that round-trips the device's float32
+                    # exactly: no rounding, no spurious float64 digits.
+                    row.append(str(np.float32(v)))
                 if v is not None:
                     got_any = True
 
