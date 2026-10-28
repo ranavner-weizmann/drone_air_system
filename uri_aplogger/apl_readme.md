@@ -219,6 +219,31 @@ For serial sensors, check whether `pyudev` finds the expected device by:
 
 If multiple devices share the same IDs, add a `serial_short` to disambiguate.
 
+#### POM: direct USB cable, not the old serial cable
+The POM is now connected with a plain USB cable straight to the instrument,
+replacing the old bulky serial cable that ran through a Prolific USB-to-serial
+adapter. The two present completely different USB identities, so
+`sensor_config.json` had to follow:
+
+| connection | USB vendor:model | kernel driver | device node |
+| --- | --- | --- | --- |
+| old serial cable + Prolific adapter | `067b:23a3` | `pl2303` | `/dev/ttyUSB*` |
+| direct USB cable (current) | `04d8:000a` | `cdc_acm` | `/dev/ttyACM*` |
+
+Baud rate is unchanged at 19200 8N1 and the record format is identical, so
+`column_names` did not change. Two things to know about the USB interface:
+
+- It terminates every record with CRLF **and a trailing NUL byte**. The old
+  serial path did not. `POMSensor.parse_data` strips it; without that, the NUL
+  arrives as its own line and is written to the CSV as a junk row between every
+  pair of real readings.
+- It reports USB serial number `0`, so there is nothing unique to pin a
+  `serial_short` against. If a second Microchip CDC device is ever added to the
+  same Pi, discovery will need another way to tell them apart.
+
+If you ever revert to the serial cable, change the POM `identifiers` back to
+`067b` / `23a3`.
+
 ### 6. Verify merger inputs
 For each enabled sensor, confirm that the expected file pattern actually matches a real file.
 

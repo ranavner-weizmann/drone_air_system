@@ -28,8 +28,8 @@
       "restart_delay": 5,
       "startup_delay": 2,
       "identifiers": {
-        "vendor_id": "067b",
-        "model_id": "23a3"
+        "vendor_id": "04d8",
+        "model_id": "000a"
       },
       "baudrate": 19200,
       "timeout": 1,

@@ -119,8 +119,18 @@ class POMSensor(GenericSensor):
         self.max_header_lines = 10
         self.skip_first_data_row = True  # Flag to skip the first data row
     
+    # Data fields expected per real-time record, i.e. column_names minus "Timestamp".
+    EXPECTED_FIELDS = 11
+
     def parse_data(self, data):
         try:
+            # The POM's USB CDC interface terminates every record with a NUL byte
+            # after CRLF. str.strip() does not remove it, so without this the lone
+            # NUL arrives as its own "line" and used to be written as a junk row.
+            data = data.replace('\x00', '').strip()
+            if not data:
+                return None
+
             # Skip header lines
             if "Personal Ozone Monitor" in data or data.isdigit():
                 self.header_lines_skipped += 1
@@ -130,8 +140,9 @@ class POMSensor(GenericSensor):
             
             data_list = data.split(',')
             
-            # Handle both data formats (11 fields = real-time, 12 fields = logged)
-            if len(data_list) > 12:
+            # Only write records that fill the configured columns exactly; a short
+            # or over-long record would otherwise be written with shifted columns.
+            if len(data_list) != self.EXPECTED_FIELDS:
                 self.logger.warning(f"Unexpected data format: {len(data_list)} fields, data: {data}")
                 return None
             

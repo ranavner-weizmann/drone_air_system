@@ -292,5 +292,53 @@ class TestSensorRows(unittest.TestCase):
         self.assertLess(pm25, 500.0)          # 513 particles/cm3, mostly sub-micron
 
 
+class TestPomUsbParsing(unittest.TestCase):
+    """POM over the direct USB cable (Microchip CDC ACM).
+
+    The USB interface ends every record with CRLF followed by a NUL byte.
+    readline() hands that NUL back as its own line, and str.strip() does not
+    remove it, so it must be filtered or it lands in the CSV as a junk row.
+    The old bulky serial cable, via a Prolific USB-serial adapter, did not
+    send the trailing NUL.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sensors = _load_config()
+
+    def _sensor(self):
+        s = impl.POMSensor("pom", _quiet(self.sensors["pom"]))
+        # parse_data drops the first record it sees by design; skip that here.
+        s.skip_first_data_row = False
+        return s
+
+    def test_realtime_row_fills_every_column(self):
+        cfg = _quiet(self.sensors["pom"])
+        s = self._sensor()
+        line = "20.3,312.3,750.8,1.7981,12.1,0000.00000,00000.00000,0.0,0,28/10/26,11:09:58"
+        row = s.parse_data(line)
+        self.assertEqual(len(row), len(cfg["column_names"]))
+        d = dict(zip(cfg["column_names"], row))
+        self.assertEqual(d["Ozone_ppb"], "20.3")
+        self.assertEqual(d["Cell_Temperature_K"], "312.3")
+        self.assertEqual(d["GPS_Quality"], "0")
+
+    def test_trailing_nul_is_stripped_from_a_record(self):
+        s = self._sensor()
+        line = "20.3,312.3,750.8,1.7981,12.1,0000.00000,00000.00000,0.0,0,28/10/26,11:09:58\x00"
+        row = s.parse_data(line)
+        self.assertIsNotNone(row)
+        self.assertNotIn("\x00", row[-1])
+
+    def test_lone_nul_line_is_not_a_row(self):
+        s = self._sensor()
+        self.assertIsNone(s.parse_data("\x00"))
+        self.assertIsNone(s.parse_data(""))
+
+    def test_short_record_is_rejected_rather_than_shifted(self):
+        s = self._sensor()
+        self.assertIsNone(s.parse_data("20.3,312.3,750.8"))
+
+
 if __name__ == "__main__":
     unittest.main()
