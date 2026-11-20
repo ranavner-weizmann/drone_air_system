@@ -34,9 +34,10 @@ class VitalsExporter:
         self.vital_columns = {
             'imet': {
                 # temp_C is the scaled derived column (degC); 'temp' is the
-                # raw device field in hundredths of a degree.
-                'columns': ['temp_C'],
-                'aliases': ['T']
+                # raw device field in hundredths of a degree. rel_hum is
+                # already in %.
+                'columns': ['temp_C', 'rel_hum'],
+                'aliases': ['T', 'RH']
             },
             'pom': {
                 'columns': ['Ozone_ppb'],
